@@ -3,16 +3,22 @@
 **Tier:** 1 (Factor fluency) — first project of the tier
 **Spec:** `ResearchToDo.md` → Part 3 → Tier 1 → Project 3
 **Repo:** https://github.com/fleeeeetcheeee/Fama-French-factor-replication
-**Status:** **Steps 1 and 2 of 6 in progress; step 1 complete.** 107 tests pass, 96% coverage.
+**Status:** **Step 1 of 6 complete; step 2 not started.** 107 tests pass, 96% coverage.
 The reference-data layer is built and verified against the real files, and the factor algebra
-reproduces published HML and SMB to French's own 0.5 bp rounding floor.
+reproduces published HML and SMB to French's own 0.5 bp rounding floor. `construct/`, `universe/`
+and `qfactor/` are still empty packages — no bottom-up construction code exists yet.
 
 The spec's done criterion **cannot be met as written on free data** — see
 [The done criterion is unreachable as written](#the-done-criterion-is-unreachable-as-written).
-Step 1 now puts a *measured* number on it: a universe without small-cap stocks tops out at
+Step 1 puts a *measured* number on it: a universe without small-cap stocks tops out at
 **0.92** correlation with published HML, measured on French's own portfolios, so the bound is a
-property of the data rather than of any implementation. WRDS access is pending; steps 1–2 were
-chosen because they are invariant to that answer.
+property of the data rather than of any implementation.
+
+**WRDS access was approved on 2026-08-24.** That likely lifts the free-data constraint and makes
+the spec's criterion reachable as written, but nothing has been verified against WRDS yet — no
+connection made, no data pulled, subscription coverage unknown. The free-data ceiling above stays
+valid regardless: it is measured on French's published portfolios, so it is a fact about the data
+rather than a limitation of this project. See [Open questions](#open-questions).
 
 ---
 
@@ -298,17 +304,34 @@ so the script warns and continues rather than failing the whole download. The UR
 `2024` in its filename and may simply have moved — to be checked when step 6 starts.
 
 **Verification: 107 tests, 96% coverage.** Dependencies pinned in `requirements.lock`
-(pandas 3.0.5, numpy 2.5.2, scipy 1.18.0).
+(pandas 3.0.5, numpy 2.5.2, scipy 1.18.0). Also checked that a fresh clone with no data still
+runs green — 80 pass, 27 skip — since a suite that requires a download to pass is a suite nobody
+else will ever see pass.
+
+Committed as `ba41458` (scaffold) and `e9f3dc2` (reference layer), split along the dependency
+boundary rather than by session, and pushed. Cloning the remote at the start rather than
+`git init`-ing over it meant the two commits landed straight on top of its `Initial commit` with
+no rebase — the reconciliation Project 02 needed did not arise here.
 
 ---
 
 ## Open questions
 
-1. **WRDS / CRSP / Compustat access — requested, approval pending (as of 2026-08-15).** The
-   highest-information unknown: it changes the project's shape rather than its schedule. With it,
-   the spec's criterion becomes achievable as written and steps 3 and 5 mostly disappear. The spec
-   itself flags WRDS as "a huge advantage" for this project. Work is being sequenced so that
-   nothing done before the answer arrives is wasted either way — hence steps 1–2 first.
+1. ~~**WRDS / CRSP / Compustat access — requested, approval pending.**~~ **Approved 2026-08-24.**
+   The account exists. What is *not* yet known, and is now the highest-information unknown:
+
+   - **Which products the subscription covers.** CRSP, Compustat and the CCM link table are all
+     required; an institution may subscribe to some and not others.
+   - **Which CRSP format is served** — legacy SIZ (`crsp.msf` / `msenames` / `msedelist`) or the
+     newer CIZ (`crsp.msf_v2` / `stksecurityinfohist`). CIZ folds delisting returns into the
+     return field and replaces the `shrcd`/`exchcd` screens with share-type flags, so the extract
+     code differs materially between them.
+   - **Whether Compustat Point-in-Time is included.** Standard `comp.funda` is *restated*, so
+     replicating French faithfully means inheriting his restatement lookahead. Worth knowing which
+     side of that line the project is on.
+
+   Sequencing steps 1–2 first proved correct: step 1's result is measured on French's published
+   portfolios, so it survives the answer intact rather than being invalidated by it.
 2. **Revised done criterion, pending the above.** Now informed by step 1's measured ceiling rather
    than guessed at. Proposed:
    - **Universe breadth is the binding constraint, not care.** With a broad free universe
@@ -332,7 +355,7 @@ so the script warns and continues rather than failing the whole download. The UR
 | Published reference series downloaded and parsed | **Done, verified** — 11 French files, all 5 breakpoint shapes |
 | Factor algebra reproduces published HML/SMB | **Done, verified** — 0.5 bps, French's own rounding floor |
 | Ceiling on a truncated universe established (step 1) | **Done** — 0.92 big-only; analytic and empirical agree |
-| 2×3 size × BE/ME sorts, NYSE breakpoints (step 2) | In progress |
+| 2×3 size × BE/ME sorts, NYSE breakpoints (step 2) | **Not started** — `construct/` is an empty package |
 | June formation on prior-December accounting | Not started |
 | SMB, HML, UMD, RMW, CMA constructed bottom-up | Not started |
 | Correlation with French's published factors > 0.99 | **Unreachable as specified.** Ceiling measured at 0.917 (large-cap) — see step 1 |
@@ -340,17 +363,22 @@ so the script warns and continues rather than failing the whole download. The UR
 
 ## Open items
 
-1. **Decide the data question (open question 1) before step 3.** Steps 1 and 2 are invariant to it.
-   Step 1 is now complete and its result holds under either answer, since it is measured on
-   French's published portfolios.
+1. ~~**Decide the data question (open question 1) before step 3.**~~ **Answered 2026-08-24** —
+   WRDS approved. Replaced by a narrower prerequisite: confirm subscription coverage and CRSP
+   format before writing any extract layer.
 2. **Project 01's `CORE_TAGS` needs extending** for deferred taxes and preferred stock, followed by
    a re-parse. That is a change in Project 01's repo consumed as data here — projects in this
-   workspace do not import from each other. Only bites if WRDS is unavailable.
+   workspace do not import from each other. **Probably moot** — Compustat supplies `TXDITC` and the
+   `PSTKRV`/`PSTKL`/`PSTK` hierarchy directly. Left open rather than struck out until the
+   subscription is confirmed to include Compustat.
 3. **Project 01's full bootstrap is a hard prerequisite** for step 3 and has never been run (its
-   open item 10).
+   open item 10). **Probably moot for this project** under the same condition as item 2. It remains
+   Project 01's own open item either way.
 4. **global-q.org fetch times out.** Needed only for step 6. The URL carries a `2024` in its
    filename and may have moved; check when that step starts.
 5. **`evaluate/regression.py` is at 93%** — the uncovered lines are `OLSResult.summary()` and one
    GRS branch. Cosmetic, but `summary()` is the path a human reads results through, so it should
    not stay untested.
-6. **Nothing committed.** The whole project is uncommitted in the working tree.
+6. ~~**Nothing committed.**~~ **Closed 2026-08-15.** Two commits on top of the remote's
+   `2461c42 Initial commit`, pushed to `origin/main`:
+   `ba41458` (scaffold) and `e9f3dc2` (reference layer + step 1). Working tree clean.

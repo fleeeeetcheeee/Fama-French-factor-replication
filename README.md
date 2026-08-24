@@ -3,7 +3,7 @@
 Building SMB, HML, UMD, RMW and CMA from individual firm data — and measuring, precisely, how
 close free data can get to Kenneth French's published series and why it falls short.
 
-> **Status: in progress — 2 of 6 steps.** The reference layer is built and verified; bottom-up
+> **Status: in progress — 1 of 6 steps.** The reference layer is built and verified; bottom-up
 > construction has not started. 107 tests, 96% coverage. This README will be rewritten around the
 > full results when there are any. Reasoning is logged in [`LOG.md`](LOG.md).
 
