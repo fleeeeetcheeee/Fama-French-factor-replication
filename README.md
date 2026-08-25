@@ -1,11 +1,12 @@
 # Fama-French Factor Replication
 
-Building SMB, HML, UMD, RMW and CMA from individual firm data — and measuring, precisely, how
-close free data can get to Kenneth French's published series and why it falls short.
+Building SMB, HML, UMD, RMW and CMA from individual firm data — and decomposing, in basis points,
+every source of difference from Kenneth French's published series.
 
-> **Status: in progress — 1 of 6 steps.** The reference layer is built and verified; bottom-up
-> construction has not started. 107 tests, 96% coverage. This README will be rewritten around the
-> full results when there are any. Reasoning is logged in [`LOG.md`](LOG.md).
+> **Status: in progress.** Step 1 (the ceiling) is complete and the CRSP universe layer is built and
+> verified against live data; the sort machinery is not written yet. 183 tests, 96% coverage. This
+> README will be rewritten around the full results when there are any. Reasoning is logged in
+> [`LOG.md`](LOG.md).
 
 ## The result so far
 
@@ -59,19 +60,28 @@ the real one or a plausible-looking impostor.
 
 ## What this can and cannot establish
 
-The spec's target is HML correlating >0.99 with French's published series over 1990–2020. **That
-is not reachable on free data**, and the reason is data existence rather than difficulty: the only
-free source of machine-readable US book equity is the SEC's Financial Statement Data Sets, which
-begin at **2009q1**. The first June formation with genuinely-known book equity is therefore
-June 2010. Three further gaps — universe breadth, missing delisted-firm price history, and the
-book-equity definition — are documented with their measured sizes in [`LOG.md`](LOG.md).
+The spec's target is HML correlating >0.99 with French's published series over 1990–2020. With CRSP
+and Compustat that is reachable in principle, and the interesting question moves from *whether* to
+*by how much, and from what*.
 
-So the deliverable is reshaped rather than softened. The interesting result here is not a
-correlation number; it is the **decomposition of the gap** — how many basis points of tracking
-error come from universe truncation, how many from the book-equity definition, how many from
-survivorship, each isolated and measured rather than listed as a caveat. A replication that
-reports 0.99 because it had CRSP demonstrates less than one that reports a lower number and can
-account for every part of the difference.
+One gap is permanent and worth naming up front. CRSP/Compustat Merged — the curated, date-aware
+link between CRSP's PERMNO and Compustat's GVKEY — is not in this subscription and cannot be added.
+The join therefore falls back to matching 8-character CUSIPs, which reaches **92.9% of firms and
+96.1% of market equity**. The residual is structural rather than a CUSIP-vintage artifact: matching
+against every historical CUSIP a security ever carried buys only 0.7pp more firms and nothing at
+all by weight. Unmatched names have a median market equity of $122m against $724m for matched ones,
+so the gap is a small-cap gap — precisely where a value factor carries risk.
+
+That is treated as a measurable quantity rather than a caveat. Linkage gets its own interface in
+the code so its cost can be isolated by ablation in step 5, alongside universe truncation, the
+book-equity definition, and survivorship. **The deliverable is the decomposition**: how many basis
+points of tracking error come from each source, isolated and measured. A replication that reports
+0.99 demonstrates less than one that reports a number and can account for every part of the
+difference.
+
+CRSP history also ends 2024-12-31 while French's published files are built from the 202606 vintage,
+so no comparison here can run past 2024-12, and his numbers carry 18 further months of restatement
+that are not visible to us.
 
 ## Method
 
@@ -82,7 +92,10 @@ account for every part of the difference.
    returns with monthly drift between annual rebalances. Tested against synthetic cross-sections
    with hand-computable answers, because the sort is where a replication goes silently wrong: a
    `>=` for a `>`, or June market equity used for the BE/ME ratio where December is required.
-3. **Universe assembly** from SEC EDGAR + free price sources.
+3. **Universe assembly** from CRSP + Compustat — **the screen is built and verified**. Reproduces
+   French's published NYSE cross-section to within 1.3% on the median and 9 firms in June 2022,
+   across four decades. Two corrections were each worth several percent and neither was obvious;
+   both are described below.
 4. **Bottom-up construction**, reported honestly.
 5. **Gap attribution**, by ablation.
 6. **q-factor extension** (Hou-Xue-Zhang 2015) and spanning tests against FF5 in both directions.
@@ -92,22 +105,30 @@ account for every part of the difference.
 ```bash
 python scripts/fetch_reference_data.py   # ~11 small files from French's library
 python scripts/ceiling_analysis.py       # reproduces the table above
-pytest                                   # 107 tests; skips cleanly without the data
+pytest                                   # 183 tests; skips cleanly without data or WRDS
+
+# with a WRDS subscription -- validates the universe screen against CRSP
+FFREP_WRDS_TESTS=1 WRDS_USERNAME=<user> pytest tests/integration/test_universe_wrds.py
 ```
 
-NYSE breakpoints are taken from French's own published breakpoint files rather than derived —
-deriving them needs a historical exchange-listing map, which is not free. This is a real limitation
-and is treated as one: the breakpoints are borrowed, and they carry the current CRSP vintage's
-restatements rather than what was known at the time.
+The WRDS tests are the interesting ones: they assert that the CRSP universe screen reproduces
+French's *published* NYSE breakpoints — median, firm count, and the full percentile curve — at six
+June cross-sections from 1990 to 2022. Two of them assert that the corrections **matter**, so a
+regression that quietly drops the blank-check exclusion or the company-level aggregation fails
+rather than passing with a worse number.
 
-## Data sources (all free)
+## Data sources
 
-- **Ken French's data library** — published factors, the 6 source portfolios with firm counts, and
-  the NYSE breakpoint files.
-- **global-q.org** — Hou-Xue-Zhang q-factors, for the extension's reference series.
-- **SEC EDGAR Financial Statement Data Sets** — book equity and the accounting inputs, via
-  Project 01's pipeline.
-- **yfinance / Stooq** — prices.
+- **CRSP monthly stock files** (via WRDS) — prices, shares outstanding, share codes, exchange
+  codes, delisting returns. History to 2024-12-31.
+- **Compustat annual fundamentals** (via WRDS) — book equity, operating profitability, investment.
+- **Ken French's data library** (free) — published factors, the 6 source portfolios with firm
+  counts, and the NYSE breakpoint files, used as the validation reference.
+- **global-q.org** (free) — Hou-Xue-Zhang q-factors, for the extension's reference series.
+
+WRDS data cannot be redistributed, so `data/` is gitignored throughout and only derived factor
+series are versioned. Everything in the reference layer is free and public, and the reference tests
+run without a subscription.
 
 ## Setup
 
@@ -121,6 +142,13 @@ pip install -r requirements.lock && pip install -e . --no-deps
 pip install -e ".[dev]"
 
 cp .env.example .env      # set SEC_USER_AGENT="Your Name your@email.com"
+
+# WRDS (optional; the reference layer and all unit tests run without it)
+pip install --no-deps -r requirements-wrds.lock   # --no-deps is required, see the file
+#   1. put your credentials in ~/.pgpass, mode 0600:
+#        wrds-pgdata.wharton.upenn.edu:9737:wrds:<username>:<password>
+#   2. export WRDS_USERNAME=<username>
+#   3. FFREP_WRDS_TESTS=1 pytest tests/integration/test_universe_wrds.py
 ```
 
 Verified against Python 3.13.9, pandas 3.0.5, numpy 2.5.2, scipy 1.18.0.
@@ -129,25 +157,36 @@ Verified against Python 3.13.9, pandas 3.0.5, numpy 2.5.2, scipy 1.18.0.
 
 Stated here rather than buried, because they bound what any number in this repo can mean.
 
-- **NYSE breakpoints are borrowed, not derived.** Deriving them needs a historical exchange-listing
-  map per firm per date, which is not free. French's own breakpoint files are used instead. They
-  also carry the *current* CRSP vintage's restatements ("created using the 202606 CRSP database"),
-  so they embed information not known at the time — a mild lookahead.
-- **No book equity before 2009.** The SEC's Financial Statement Data Sets begin at 2009q1, so the
-  first June formation with genuinely-known book equity is June 2010. The spec's 1990–2020 window
-  is not reachable on free data at all.
-- **Delisted firms have no price history** from free sources, and value portfolios are
-  disproportionately distressed firms. This biases the value leg upward. Inherited from Project 01,
-  where it is that project's largest open item.
-- **RMW and CMA cannot start before 1963** — French's OP and INV breakpoint files begin there,
-  reflecting Compustat coverage.
-- **Steps 3–6 are not built.** Everything above the "result so far" section is measured; everything
-  below it is a plan.
+- **No CRSP/Compustat Merged link table.** Not in the subscription, and not obtainable. The
+  PERMNO↔GVKEY join is an 8-character CUSIP match covering 92.9% of firms and 96.1% of market
+  equity, and the missing names skew small. This is the largest single limitation and it is
+  permanent; step 5 measures what it costs rather than assuming it is negligible.
+- **The blank-check exclusion is inferred, not documented.** CRSP tags SPACs with share code 11, so
+  they pass an ordinary-common-shares filter; through 2021–22 that put up to 164 excess names into
+  the NYSE cross-section and dragged the June-2022 median 18.6% below French's. Excluding SIC 6799
+  reconciles the two to 1.3%, and improves every historical year rather than trading one against
+  another — but French does not publish this rule anywhere. It is inferred from matching his counts
+  and his stated intent to exclude closed-end-fund-like vehicles.
+- **CRSP ends 2024-12-31**, French's files are built from the 202606 vintage. Comparisons stop at
+  2024-12, and a residual of roughly 8% at the 5th percentile in June 2024 is consistent with
+  small-cap restatement between vintages. Noted, not chased.
+- **NYSE breakpoints are currently borrowed, not derived.** French's own breakpoint files are used.
+  This is now a choice rather than a constraint — the universe screen reproduces his NYSE
+  cross-section closely enough to derive them — and deriving them independently is a step-2 task.
+  Until then they carry the *current* CRSP vintage's restatements, a mild lookahead.
+- **Delisting returns are implemented but not yet exercised** on a full panel. The Shumway (1997)
+  −30% convention is applied to performance-related delistings with a missing return; 193 of 29,106
+  delisting events in this subscription qualify.
+- **Steps 2, 4, 5 and 6 are not built.** Everything above the "result so far" section is measured;
+  everything below it is a plan.
 
 ## Relationship to the earlier projects
 
-**Project 01** (point-in-time equity data pipeline) supplies fundamentals and prices. Consumed as
-*data*, not imported — projects in this workspace do not depend on each other's packages.
+**Project 01** (point-in-time equity data pipeline) is no longer the fundamentals source — CRSP and
+Compustat replace it, and with them the 2009q1 EDGAR floor and the missing delisted-price problem
+both disappear. Its point-in-time discipline still governs the design here: `msenames` is joined on
+`namedt`/`nameendt` so a security's share code, exchange and SIC are the values that were true at
+the time, not today's.
 
 **Project 02** (event-driven backtesting engine) already reproduces published HML *returns* to
 0.5 bps, but from French's own portfolio series. That validated the backtester's accounting. It

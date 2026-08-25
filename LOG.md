@@ -3,10 +3,11 @@
 **Tier:** 1 (Factor fluency) — first project of the tier
 **Spec:** `ResearchToDo.md` → Part 3 → Tier 1 → Project 3
 **Repo:** https://github.com/fleeeeetcheeee/Fama-French-factor-replication
-**Status:** **Step 1 of 6 complete; step 2 not started.** 107 tests pass, 96% coverage.
-The reference-data layer is built and verified against the real files, and the factor algebra
-reproduces published HML and SMB to French's own 0.5 bp rounding floor. `construct/`, `universe/`
-and `qfactor/` are still empty packages — no bottom-up construction code exists yet.
+**Status:** **Step 1 complete; the universe layer of step 3 built and verified against live CRSP.**
+183 tests pass, 96% coverage. The reference-data layer reproduces published HML and SMB to French's
+own 0.5 bp rounding floor, and `universe/` now screens a real CRSP cross-section to within 1.3% of
+French's published NYSE median across four decades. `construct/` and `qfactor/` are still empty —
+the sort machinery itself is not written.
 
 The spec's done criterion **cannot be met as written on free data** — see
 [The done criterion is unreachable as written](#the-done-criterion-is-unreachable-as-written).
@@ -14,11 +15,14 @@ Step 1 puts a *measured* number on it: a universe without small-cap stocks tops 
 **0.92** correlation with published HML, measured on French's own portfolios, so the bound is a
 property of the data rather than of any implementation.
 
-**WRDS access was approved on 2026-08-24.** That likely lifts the free-data constraint and makes
-the spec's criterion reachable as written, but nothing has been verified against WRDS yet — no
-connection made, no data pulled, subscription coverage unknown. The free-data ceiling above stays
-valid regardless: it is measured on French's published portfolios, so it is a fact about the data
-rather than a limitation of this project. See [Open questions](#open-questions).
+**WRDS access was approved on 2026-08-24 and is now connected and characterised.** CRSP and
+Compustat annual are readable; **CRSP/Compustat Merged is not, and cannot be added**, so the
+PERMNO↔GVKEY join is permanently a CUSIP match at 92.9% of firms / 96.1% of market equity. CRSP
+history ends 2024-12-31 while French's published files are built from the 202606 vintage, so no
+comparison can run past 2024-12. The spec's >0.99 criterion is reachable in principle on this data;
+the linkage gap is now a *measured* component of the step-5 attribution rather than a caveat. The
+free-data ceiling above stays valid regardless — it is measured on French's own published
+portfolios, so it is a fact about the data, not a limitation of this project.
 
 ---
 
@@ -313,7 +317,258 @@ boundary rather than by session, and pushed. Cloning the remote at the start rat
 `git init`-ing over it meant the two commits landed straight on top of its `Initial commit` with
 no rebase — the reconciliation Project 02 needed did not arise here.
 
+### 2026-08-24 — WRDS reconnaissance: CRSP and Compustat yes, the link table no
+
+Written as work happened. Connected as `fjlee01` over `wrds-pgdata.wharton.upenn.edu:9737`;
+221 libraries visible. No data pulled yet — everything below is bounded probing.
+
+#### What the subscription actually covers
+
+| | Verified by | Result |
+|---|---|---|
+| CRSP monthly/daily stock | `select` on `msf`, `dsf`, `msenames`, `msedelist` | **Full read access** |
+| CRSP CIZ format | `select` on `msf_v2`, `stksecurityinfohist` | **Also present** — both formats available |
+| Compustat annual | `select` on `funda` (949 cols), `company`, `security` | **Full read access** |
+| **CRSP/Compustat Merged (CCM)** | `select` on `ccmxpf_lnkhist` | **DENIED** — `permission denied for schema crsp_a_ccm` |
+| Compustat Point-in-Time | `pitfnda`, `pitfndq`, `snapshot_funda` | **Does not exist** here |
+| OptionMetrics / TAQ | library list | **Sample libraries only** (`optionmsamp_us`, `taqsamp`) |
+
+`list_libraries()` reported `crsp` and every `ccmxpf_*` table inside it, and all five are denied on
+`select`. The `crsp` schema exposes *views* onto `crsp_a_ccm`, which is a separate subscription
+line. Listing a table is not entitlement to read it, and the recon plan said so before this ran —
+which is the only reason it was checked rather than assumed.
+
+**Coverage.** `crsp.msf` runs 1925-12-31 → **2024-12-31** (5,153,763 rows) — an annual update, so
+it ends 18 months before French's 2026-06 vintage. Any comparison window ends 2024-12, not 2026.
+`comp.funda` runs 1950-06 → 2026-07. Every field the FF protocol needs is present in `funda`:
+`seq/ceq/pstk/pstkl/pstkrv/txditc/txdb/itcb` for book equity, `revt/cogs/xsga/xint` for RMW,
+`at` for CMA. Checked by name against the live table rather than assumed.
+
+#### The missing link table is the one real problem
+
+Without CCM there is no maintained PERMNO↔GVKEY mapping, and that join is what makes bottom-up
+construction possible at all. Measured the pre-CCM fallback — an 8-character CUSIP match — against
+the June-2020 CRSP universe (3,574 firms) and Compustat FY2019:
+
+| Join key | Firms matched | By market-equity weight |
+|---|---|---|
+| `msenames.cusip` → `funda.cusip[:8]` | 3,260 / 3,574 = **91.2%** | **96.0%** |
+| `msenames.ncusip` → `funda.cusip[:8]` | 2,921 / 3,574 = 81.7% | 94.2% |
+
+The header CUSIP beats the historical one, which is initially backwards-looking but expected:
+Compustat's `funda.cusip` is itself the *current* identifier, so matching it against CRSP's current
+header CUSIP compares like with like. Matching it against `ncusip` asks a historical key to find a
+current one and loses ~10% of firms. Worth stating plainly that this makes the link mildly
+forward-looking, which is a limitation to declare rather than a bug to fix.
+
+96% by weight and 91% by count is workable for a value-weighted factor but is **not** CCM. The
+missing 9% is not random — it will be concentrated in the small, the delisted and the
+recently-restructured, which is exactly the tail HML depends on. Requesting CCM from the
+institution's WRDS representative is worth doing before accepting this; it is often an addable
+subscription line.
+
+#### The NYSE-median check found a real construction detail, and a real anomaly
+
+Recomputed the NYSE median market equity from CRSP and compared it to French's published
+`ME_Breakpoints` p50 — the single strongest available check, because agreement confirms the
+universe screen, the sign handling on `prc` (negative when it is a bid/ask midpoint rather than a
+trade) and the `shrout` thousands→millions conversion all at once, against an external reference.
+
+**First attempt was off by −7.2%.** The cause is a documented FF detail: market equity is
+aggregated to the **company** (`permco`), summing across share classes, not left per security
+(`permno`). Fixing that moved 2000 from −5.50% to **−0.18%** and 2010 from −3.68% to **−0.35%**.
+
+Sweeping the corrected version across decades:
+
+| June of | French p50 ($m) | CRSP p50 ($m) | diff | French n | our n | Δn |
+|---|---|---|---|---|---|---|
+| 1980 | 200.7 | 200.4 | −0.15% | 1,419 | 1,426 | +7 |
+| 1990 | 503.6 | 498.1 | −1.09% | 1,293 | 1,300 | +7 |
+| 1995 | 682.8 | 678.0 | −0.70% | 1,644 | 1,644 | 0 |
+| 2000 | 905.1 | 903.4 | −0.18% | 1,635 | 1,632 | −3 |
+| 2005 | 1,786.2 | 1,785.6 | −0.03% | 1,440 | 1,440 | 0 |
+| 2010 | 1,589.7 | 1,584.2 | −0.35% | 1,296 | 1,305 | +9 |
+| 2015 | 2,736.9 | 2,709.4 | −1.01% | 1,321 | 1,337 | +16 |
+| 2018 | 3,228.9 | 3,177.1 | −1.60% | 1,226 | 1,246 | +20 |
+| 2020 | 2,584.1 | 2,433.4 | −5.83% | 1,173 | 1,208 | +35 |
+| **2022** | 3,208.6 | 2,611.8 | **−18.60%** | 1,242 | 1,396 | **+154** |
+| 2024 | 4,023.1 | 3,690.7 | −8.26% | 1,190 | 1,259 | +69 |
+
+Two readings. **The screen is essentially correct for 1980–2015** — sub-1% on the median and
+near-exact on firm counts, which is a strong signal that the CRSP-side universe logic is right.
+**Something diverges sharply from ~2018 and peaks in 2022**, where we carry 154 NYSE names French
+does not. The sign is informative: extra firms depressing the median means the surplus is small-cap.
+The 2021–22 SPAC wave is the obvious candidate — hundreds of blank-cheque companies listed with
+`shrcd` 10/11 and modest market caps — but that is a hypothesis, not a finding, and it is the first
+thing step 2 has to resolve. Recorded now because a replication that quietly inherits this would
+show a clean 1963–2015 result and an unexplained recent-decade drift.
+
+#### Smaller findings
+
+- **Delisting returns barely need imputing**: 193 of 29,106 delisting events have a null `dlret`,
+  157 of them performance-related (codes 500, 520–584). Shumway's −30% convention therefore moves
+  very little here — good, since it is the crudest assumption in the standard recipe.
+- **No Compustat Point-in-Time.** So `funda` is restated data. Since French uses the same, this
+  *helps* the replication and hurts any tradeable claim: matching him means inheriting his
+  restatement lookahead. That belongs in the limitations section as a distinction, not a defect.
+- **Extract is small.** 4,776,239 `msf` rows from 1962, 117,830 `msenames`, 591,346 `funda` rows —
+  and only ~25 of `funda`'s 949 columns are needed. This is a few hundred MB of Parquet, so it is
+  one bounded pull rather than a staged job.
+- No OptionMetrics and no TAQ beyond sample libraries, which constrains Projects 5, 12 and 13 later.
+
+**Nothing written to disk, no extract code yet** — deliberately, until the CCM question is settled,
+because whether the link is CCM or CUSIP changes the shape of the universe module.
+
 ---
+
+### 2026-08-25 — Universe screen resolved: the SPAC leak, and SIZ/CIZ equivalence
+
+Closed open questions 4, 5 and 6. The headline: the post-2018 divergence was a real screen defect
+in my code, not a French idiosyncrasy, and fixing it improves *every* year rather than trading
+recent accuracy against historical.
+
+**Question 5 — the ~150 extra NYSE names.** Diagnosed by elimination, cheapest test first.
+
+1. *Not ETFs.* The first hypothesis was NYSE Arca leakage. A `shrcd` × `exchcd` cross-tab killed it
+   outright: all 1,804 ETFs (`shrcd` 73) sit on `exchcd` 3/4/5, never on `exchcd` 1. The NYSE
+   filter already excluded every one of them.
+2. *Not a join or measurement bug.* Zero `(permno, date)` pairs had duplicate `msenames` rows
+   (0 of 124,589). And market equity computed as `abs(prc) * shrout / 1000` matches CRSP's own
+   `mthcap` field on **1,419 of 1,419** securities — exactly, not approximately. That eliminated the
+   entire measurement path and left the universe as the only remaining suspect.
+3. *The error shape was the clue.* Comparing the full percentile curve rather than just the median:
+   June 2022 was −37% at p20 and −31% at p30 but only −4.8% at p5 and −6.2% at p95. An inverted-U.
+   Extra tiny firms would push the error monotonically down toward the bottom tail; this said the
+   surplus sat in the lower-middle of the distribution, around a few hundred million dollars.
+4. *Dating it.* A monthly count series 2017–2024 against French's own counts: a stable +20 to +30
+   through 2019, then a ramp beginning Q4 2020, peaking at **+164 in January 2022**, decaying to
+   +70 by late 2024. French's own count barely moves across the whole period (1,193 → 1,233 →
+   1,206). That profile — ramp, spike, slow unwind — is the SPAC cycle.
+5. *Naming them.* Bucketing the June-2022 screen by each PERMNO's first appearance in `msf`: 295
+   firms first listed in 2020 or later, median ME $445m against $3,666m for everything else, and
+   127 of them carrying SIC **6799**. The names settle it — `KINGSWOOD ACQUISITION CORP`,
+   `PARABELLUM ACQUISITION CORP`, `G & P ACQUISITION CORP`, and so on down the list.
+
+An earlier check for SIC `677x` had returned zero and briefly pointed away from SPACs. That was my
+error: CRSP files blank-check companies under **6799** ("Investors, NEC"), not 6770.
+
+**The fix, and why it is defensible.** French documents his screen as "all NYSE stocks that have a
+CRSP share code of 10 or 11 and have good shares and price data. We exclude closed end funds and
+REITs." In CRSP's coding those two exclusions are already implied by `shrcd` 10/11 — REITs are
+`shrcd` 18 and closed-end funds are 44/48, both visible in the cross-tab and both already out. So
+his stated screen equals mine, and the difference has to be in what counts as a firm. Excluding
+SIC 6799 — economically the same category of blank-check investment vehicle French names — is what
+reproduces his universe:
+
+| June | French n | base n | ex-6799 n | median gap, base → ex-6799 |
+|---|---|---|---|---|
+| 1990 | 1,293 | 1,300 | 1,293 | −1.09% → **−0.42%** |
+| 2000 | 1,635 | 1,632 | 1,625 | −0.18% → **−0.21%** |
+| 2010 | 1,296 | 1,305 | 1,300 | −0.35% → **−0.11%** |
+| 2015 | 1,321 | 1,337 | 1,322 | −1.01% → **+0.06%** |
+| 2018 | 1,226 | 1,246 | 1,230 | −1.60% → **−0.32%** |
+| 2020 | 1,173 | 1,208 | 1,188 | −5.83% → **−2.71%** |
+| 2022 | 1,242 | 1,396 | 1,251 | −18.60% → **−1.30%** |
+| 2024 | 1,190 | 1,259 | 1,210 | −8.26% → **−1.24%** |
+
+It is not a patch tuned to 2022. Pre-2010 there are only 6–7 such firms in the whole NYSE
+cross-section, so the screen is nearly inert historically — and it still *improves* 1990, 2015 and
+2018. Verified across the full distribution, not just the median: worst-percentile error in June
+2022 falls from 37.25% to **2.92%**, and 2015's whole curve is within 1.02%.
+
+Recorded honestly: French does not publish "exclude SIC 6799" anywhere. The screen is inferred from
+matching his counts and his stated intent, not from documentation. If his actual mechanism is a
+CRSP vintage reclassification of SPACs — his files are built from the 202606 database, mine ends
+2024-12 — the observable result is the same but the reasoning would differ.
+
+**Residual, not chased.** June 2024 still runs −8.3% at p5 while the rest of its curve is within
+3.6%. Small-cap restatement and delisting backfill between CRSP vintages is the likely cause and it
+sits in the part of the distribution least able to move a value-weighted factor. Noted, not fixed.
+
+**Question 6 — SIZ or CIZ.** Answered empirically rather than by preference. Rebuilding the same
+June-2022 cross-section through CIZ (`msf_v2` + `stksecurityinfohist`, screening
+`sharetype='NS'`, `securitytype='EQTY'`, `securitysubtype='COM'`, `usincflg='Y'`,
+`issuertype in ('ACOR','CORP')`, `primaryexch='N'`, `conditionaltype='RW'`,
+`tradingstatusflg='A'`) gives 1,419 permnos / 1,400 permcos against SIZ's 1,415 / 1,396 — and an
+**identical median to one decimal place** ($2,611.8m under both).
+
+So the format choice does not matter for the universe, which is the useful finding: **build on SIZ**
+for fidelity to the published recipe and to keep the Shumway delisting adjustment explicit in our
+own code rather than pre-folded into CIZ's return field, with this equivalence kept as a test.
+
+Worth noting CIZ does *not* solve question 5 for free: all 124 SIC-6799 names inside the CIZ screen
+classify as `CORP`/`COM`/`NS`/`RW`, indistinguishable from ordinary common stock. There is no
+structural field for blank-check status in either format.
+
+**Question 4 — CCM.** Confirmed unavailable and not obtainable; `crsp_a_ccm` stays denied. The
+CUSIP fallback is now permanent architecture rather than a stopgap. Measured the improvement from
+matching against *every* historical CUSIP a PERMNO ever carried, rather than only its current one
+(June 2020, all exchanges, 3,549 securities, $30.7T):
+
+| link key | firms | by ME |
+|---|---|---|
+| current `cusip` | 92.2% | 96.1% |
+| `ncusip` alone | 81.9% | 94.2% |
+| union of all historical | **92.9%** | **96.1%** |
+
+The union buys +0.7pp of firms and nothing at all by market equity, so the misses are structural —
+firms genuinely absent from Compustat — rather than a CUSIP-vintage artifact. Unmatched names have
+a median ME of $122m against $724m for matched ones, confirming the gap concentrates in small caps.
+That fixes the fallback's ceiling at roughly **93% of firms / 96% of market equity**, and linkage
+becomes a measured component of the step-5 gap attribution rather than an unquantified caveat.
+
+### 2026-08-25 — Universe layer built and verified against live CRSP
+
+`ffrep/universe/` exists now: four modules, 183 tests total (96% coverage, and 100% on all three
+logic modules), with 18 integration tests running against the live database.
+
+    wrds_source.py   queries only, no judgement          64% (network-only)
+    screen.py        which securities are a firm         100%
+    delisting.py     Shumway's -30%                      100%
+    linker.py        PERMNO -> GVKEY and its cost        100%
+
+**The layering rule is Project 01's, deliberately.** Extraction may not transform; transformation
+may not reach the network. Every decision that could be wrong in an interesting way is a pure
+DataFrame function testable against a hand-built cross-section, and `wrds_source.py` is left
+carrying as little judgement as possible because it can only ever be integration-tested. Its 64%
+coverage is the network paths and is expected to stay that way.
+
+**Tests are hand-computable by design.** `10 dollars x 1,000 thousand shares = $10m` is checkable
+in your head; a fixture of realistic-looking noise is not. The failure mode this layer guards
+against is not a crash but a plausible wrong answer, and only a case whose correct output you
+already know can catch one. Same reasoning as Project 02's synthetic cross-sections.
+
+**Two orderings that are load-bearing**, both covered by a named test:
+
+* The share screen must run *before* company aggregation. Aggregating first would fold a SPAC's
+  market equity into a legitimate company's total and then never look at its SIC again —
+  `test_screen_runs_before_aggregation`.
+* PERMCO ties break on the lower PERMNO. An arbitrary rule is fine; a *nondeterministic* one makes
+  the whole build irreproducible, which is the same reasoning as Project 02's event-queue sequence
+  counter — `test_ties_break_deterministically_on_lower_permno`.
+
+**`CcmLinker` raises instead of falling back.** It would have been easy to make it silently
+degrade to CUSIP. It doesn't: if CCM access ever appears, the failure should be loud and at the
+seam rather than a quiet difference in results six steps downstream.
+
+**Found while writing the tests: SIZ and CIZ disagree about ~20 firms' SIC codes.** `msf_v2.siccd`
+is the *current* header classification; `msenames.siccd` travels with the name record and is
+point-in-time. After the blank-check exclusion the two formats give 1,276 vs 1,255 NYSE companies
+and medians 2.4% apart, where before the exclusion they agreed to one decimal place. This is an
+additional argument for SIZ that question 6 did not anticipate: its SIC is the value that was true
+at the time, and applying today's industry code to a 1990 cross-section is the same class of
+lookahead that Project 01 exists to prevent. The integration test asserts the 5%/30-firm envelope
+and documents the reason rather than tuning the tolerance until it passed.
+
+**Acceptance, on live data rather than claimed:** the NYSE median tracks French's published value
+within 5% at every June from 1990 to 2022, the firm count within 30, and the full percentile curve
+for June 2022 within 6% at p10 through p90. Two tests assert that the corrections *matter* —
+that removing the blank-check exclusion moves 2022 by more than 10%, and that company aggregation
+moves June-2000 closer to French — so a regression that quietly drops either one fails rather than
+passing with a worse number.
+
+WRDS tests are opt-in behind `FFREP_WRDS_TESTS=1` plus `WRDS_USERNAME`, and skip when credentials
+are absent, so a fresh clone with no subscription still runs green.
 
 ## Open questions
 
@@ -330,8 +585,12 @@ no rebase — the reconciliation Project 02 needed did not arise here.
      replicating French faithfully means inheriting his restatement lookahead. Worth knowing which
      side of that line the project is on.
 
+   **All three answered by the 2026-08-24 reconnaissance above:** CRSP yes (both SIZ and CIZ,
+   through 2024-12), Compustat yes, **CCM link table no**, Point-in-Time no.
+
    Sequencing steps 1–2 first proved correct: step 1's result is measured on French's published
    portfolios, so it survives the answer intact rather than being invalidated by it.
+
 2. **Revised done criterion, pending the above.** Now informed by step 1's measured ceiling rather
    than guessed at. Proposed:
    - **Universe breadth is the binding constraint, not care.** With a broad free universe
@@ -348,6 +607,27 @@ no rebase — the reconciliation Project 02 needed did not arise here.
    item 10 and is a prerequisite here regardless of which criterion is adopted. Deferred until
    step 3, per the sequencing decision above.
 
+4. ~~**Can CCM access be added?**~~ **Closed 2026-08-25 — no.** `crsp_a_ccm` is not in the
+   subscription and will not be added. The PERMNO↔GVKEY join is permanently an 8-character CUSIP
+   match, measured at 92.9% of firms / 96.1% of market equity against every historical CUSIP.
+   Consequence for the design: linkage is a first-class, *measured* gap component in step 5, and the
+   extract layer gets a `Linker` seam so the assumption is isolated and testable rather than
+   diffused through the construction code.
+
+5. ~~**Why do ~150 extra NYSE names appear from 2018 onward?**~~ **Closed 2026-08-25.** A screen
+   defect in my code: CRSP tags blank-check/SPAC entities with SIC 6799 and `shrcd` 11, so they pass
+   an ordinary-common-shares filter. Excluding SIC 6799 reproduces French's counts to within 9 firms
+   in 2022 and improves every historical year. See the 2026-08-25 entry.
+
+6. ~~**Which CRSP format to build on, SIZ or CIZ?**~~ **Closed 2026-08-25 — SIZ.** The two were
+   verified to produce an identical NYSE median for June 2022, so the choice is free on the merits
+   and goes to fidelity with the published recipe plus an explicit Shumway adjustment. The CIZ
+   equivalence is kept as a regression test.
+
+7. **Does the SIC 6799 screen belong at the universe layer or the sort layer?** It changes the
+   breakpoint universe, so it must apply before breakpoints are computed. Open only as a question of
+   where it lives in the code, not whether it applies.
+
 ## Status against the done criterion
 
 | Requirement | State |
@@ -355,6 +635,9 @@ no rebase — the reconciliation Project 02 needed did not arise here.
 | Published reference series downloaded and parsed | **Done, verified** — 11 French files, all 5 breakpoint shapes |
 | Factor algebra reproduces published HML/SMB | **Done, verified** — 0.5 bps, French's own rounding floor |
 | Ceiling on a truncated universe established (step 1) | **Done** — 0.92 big-only; analytic and empirical agree |
+| CRSP universe screen reproduces French's NYSE cross-section | **Done, verified** — within 1.3% of the published median and 9 firms in 2022; 18 live-CRSP tests |
+| PERMNO↔GVKEY linkage | **Done, measured** — CUSIP fallback at 92.9% of firms / 96.1% of ME; CCM unavailable |
+| Delisting returns (Shumway 1997) | **Implemented, unit-tested** — not yet exercised on a full panel |
 | 2×3 size × BE/ME sorts, NYSE breakpoints (step 2) | **Not started** — `construct/` is an empty package |
 | June formation on prior-December accounting | Not started |
 | SMB, HML, UMD, RMW, CMA constructed bottom-up | Not started |
@@ -366,14 +649,14 @@ no rebase — the reconciliation Project 02 needed did not arise here.
 1. ~~**Decide the data question (open question 1) before step 3.**~~ **Answered 2026-08-24** —
    WRDS approved. Replaced by a narrower prerequisite: confirm subscription coverage and CRSP
    format before writing any extract layer.
-2. **Project 01's `CORE_TAGS` needs extending** for deferred taxes and preferred stock, followed by
-   a re-parse. That is a change in Project 01's repo consumed as data here — projects in this
-   workspace do not import from each other. **Probably moot** — Compustat supplies `TXDITC` and the
-   `PSTKRV`/`PSTKL`/`PSTK` hierarchy directly. Left open rather than struck out until the
-   subscription is confirmed to include Compustat.
-3. **Project 01's full bootstrap is a hard prerequisite** for step 3 and has never been run (its
-   open item 10). **Probably moot for this project** under the same condition as item 2. It remains
-   Project 01's own open item either way.
+2. ~~**Project 01's `CORE_TAGS` needs extending**~~ **Closed 2026-08-25 — moot for this project.**
+   `comp.funda` is confirmed readable with all 949 columns, and supplies `TXDITC` and the
+   `PSTKRV`/`PSTKL`/`PSTK` hierarchy directly; `FUNDA_FIELDS` in `wrds_source.py` pulls them. It
+   remains a genuine gap in Project 01's own repo, where it is that project's open item.
+3. ~~**Project 01's full bootstrap is a hard prerequisite**~~ **Closed 2026-08-25 — moot for this
+   project.** CRSP replaces it as the price source, which also removes the delisted-price gap
+   Project 01 could not close (yfinance serves no history for delisted tickers). It remains
+   Project 01's own open item 10.
 4. **global-q.org fetch times out.** Needed only for step 6. The URL carries a `2024` in its
    filename and may have moved; check when that step starts.
 5. **`evaluate/regression.py` is at 93%** — the uncovered lines are `OLSResult.summary()` and one
@@ -382,3 +665,14 @@ no rebase — the reconciliation Project 02 needed did not arise here.
 6. ~~**Nothing committed.**~~ **Closed 2026-08-15.** Two commits on top of the remote's
    `2461c42 Initial commit`, pushed to `origin/main`:
    `ba41458` (scaffold) and `e9f3dc2` (reference layer + step 1). Working tree clean.
+
+7. **The universe layer has never been run over the full history.** Every WRDS test uses single
+   June cross-sections, which is enough to validate the screen and cheap enough to run often. The
+   full 1990–2024 monthly extract — roughly 4.8M `msf` rows plus `funda` — has not been pulled, and
+   the `ExtractWindow` path is therefore implemented but not exercised at scale. Same distinction
+   Project 01 draws: implemented is not verified.
+
+8. **Derive NYSE breakpoints rather than borrowing French's.** Now feasible — the screen reproduces
+   his NYSE cross-section closely enough — and it would remove the mild lookahead his files carry
+   (they are built from the 202606 vintage's restatements). A step-2 task, and the point at which
+   the README's borrowed-breakpoints limitation can be retired.
