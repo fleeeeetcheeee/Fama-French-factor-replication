@@ -60,18 +60,49 @@ class ExtractWindow:
             raise ValueError(f"start {self.start!r} is after end {self.end!r}")
 
 
-def connect(username: str) -> Any:
+#: The WRDS server intermittently refuses the first connection of a session.
+#: Observed twice; both times the immediate retry succeeded.
+CONNECT_ATTEMPTS = 3
+
+#: Seconds between connection attempts.
+CONNECT_BACKOFF_SECONDS = 2.0
+
+
+def connect(username: str, *, attempts: int = CONNECT_ATTEMPTS) -> Any:
     """
-    Open a WRDS connection.
+    Open a WRDS connection, retrying a flaky first handshake.
 
     Credentials come from ``~/.pgpass`` (mode 0600). Nothing in this repo reads,
     stores, or logs a password, and no extract is ever committed — WRDS data
     cannot be redistributed, so ``data/`` stays gitignored and only derived
     factor series are versioned.
+
+    The retry is not defensive padding. The WRDS server intermittently refuses
+    the first connection, and the ``wrds`` package responds by falling back to
+    an interactive ``input()`` prompt for credentials. Under any non-interactive
+    caller — a script, a test, a scheduled job — that prompt raises ``EOFError``
+    from inside the library, which is why ``EOFError`` is caught here alongside
+    the connection errors: it is this library's way of reporting a failed
+    handshake, not a real end-of-input.
     """
+    import time
+
     import wrds  # imported lazily so the package imports without a network stack
 
-    return wrds.Connection(wrds_username=username)
+    last: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return wrds.Connection(wrds_username=username)
+        except (EOFError, OSError) as exc:
+            last = exc
+            if attempt < attempts:
+                time.sleep(CONNECT_BACKOFF_SECONDS)
+
+    raise ConnectionError(
+        f"could not connect to WRDS as {username!r} after {attempts} attempts. "
+        f"Check ~/.pgpass (mode 0600, host wrds-pgdata.wharton.upenn.edu:9737). "
+        f"Last error: {last!r}"
+    )
 
 
 def fetch_monthly_stock(db: Any, window: ExtractWindow) -> pd.DataFrame:
