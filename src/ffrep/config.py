@@ -133,16 +133,51 @@ LISTED_EXCHANGE_CODES: tuple[int, ...] = (1, 2, 3, 31, 32, 33)
 #: blank-check and SPAC entities, which carry share code 11 and therefore pass
 #: an ordinary-common-shares filter unchallenged.
 #:
-#: Excluding it is what reconciles our NYSE universe with French's. Without it
-#: the June-2022 NYSE median is 18.6% below his published value and the firm
-#: count 154 too high; with it, 1.3% and 9. It is not a patch tuned to 2022 —
-#: pre-2010 there are only 6-7 such firms in the entire NYSE cross-section, so
-#: it is nearly inert historically and still improves 1990, 2015 and 2018.
+#: Excluding it is what reconciles our NYSE universe with French's. Validated on
+#: all 866 months he publishes (1926-07 to 2024-12) against his ME_Breakpoints
+#: median and firm count, and scored against alternatives:
 #:
-#: Caveat, recorded because it matters: French does not publish this rule. It is
-#: inferred from matching his counts and his stated intent to exclude
-#: closed-end-fund-like vehicles. See LOG.md, 2026-08-25.
+#:     variant                    median|err|   worst|err|   worst count diff
+#:     base, no exclusion             0.17%       23.63%          171
+#:     ex 6799                        0.08%        3.96%           27
+#:     ex 6770                        0.17%       23.63%          171
+#:     ex 67xx                        0.50%        6.93%          101
+#:     ex name ~ "ACQUISITION"        0.17%       17.15%          120
+#:
+#: So 6799 is the whole effect (6770 changes nothing — which is why an initial
+#: check for 677x came back empty), broadening to 67xx overshoots, and the SIC
+#: beats a name match. The 1920s-1980s decades run at 0.00-0.11% median error
+#: with a worst count difference of 2 firms, so this is not a patch fitted to
+#: the 2021-22 SPAC wave.
+#:
+#: What remains inferred is the *mechanism*, not the screen: French publishes no
+#: such rule, and a CRSP vintage reclassification of these entities would
+#: produce the same observable. Residual +14 firms / -1.77% median in the 2020s
+#: is unexplained — LOG.md open question 9. See LOG.md, 2026-08-25.
 EXCLUDED_SIC_CODES: tuple[int, ...] = (6799,)
+
+#: How a percentile is taken from a finite cross-section. Selected empirically,
+#: not assumed: scored against French's published ME_Breakpoints over 1960-1989
+#: (360 months, 4,731 month-percentile pairs) — decades old enough that CRSP
+#: restatements cannot confound the comparison.
+#:
+#:     method      median err   mean |err|   within 0.5%
+#:     lower         0.0000%      0.2240%       85.0%
+#:     nearest       0.0049%      0.2458%       83.2%
+#:     linear        0.0886%      0.2774%       83.2%
+#:     midpoint      0.1076%      0.3094%       80.8%
+#:     higher        0.1943%      0.3971%       72.2%
+#:
+#: "lower" is unbiased to four decimal places where every alternative is not,
+#: and its median absolute difference from French is $0.0048m — just inside the
+#: $0.005m half-ulp of his own two-decimal reporting, so for half of all pairs
+#: the two agree as closely as his published precision can express.
+#:
+#: It is also the convention that makes the bucket edges coherent: "lower"
+#: returns an actual firm's market equity, and that firm belongs in the bucket
+#: at or below the breakpoint — which is the inclusive-lower-edge rule in
+#: construct/sorts.py.
+BREAKPOINT_QUANTILE_METHOD = "lower"
 
 #: Delisting return imputed for performance-related delistings that have none,
 #: following Shumway (1997). Ignoring these biases the value leg upward, because
