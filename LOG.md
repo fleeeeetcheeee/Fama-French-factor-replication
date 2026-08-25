@@ -3,11 +3,14 @@
 **Tier:** 1 (Factor fluency) — first project of the tier
 **Spec:** `ResearchToDo.md` → Part 3 → Tier 1 → Project 3
 **Repo:** https://github.com/fleeeeetcheeee/Fama-French-factor-replication
-**Status:** **Step 1 complete; the universe layer of step 3 built and verified against live CRSP.**
-183 tests pass, 96% coverage. The reference-data layer reproduces published HML and SMB to French's
-own 0.5 bp rounding floor, and `universe/` now screens a real CRSP cross-section to within 1.3% of
-French's published NYSE median across four decades. `construct/` and `qfactor/` are still empty —
-the sort machinery itself is not written.
+**Status:** **Steps 1 and 2 complete; the universe layer of step 3 built and verified against live
+CRSP.** 266 tests pass, 97% coverage. The reference layer reproduces published HML and SMB to
+French's own 0.5 bp rounding floor; `universe/` screens a real CRSP cross-section to within 1.3% of
+his published NYSE median across four decades; `construct/` holds the 2x3 sort machinery, and NYSE
+breakpoints are now **derived** rather than borrowed (median error −0.000% over 544 months).
+
+The construct layer has never run on real data — BE/ME needs the Compustat extract, which has not
+been pulled, so every sort test uses synthetic input. `qfactor/` is still empty.
 
 The spec's done criterion **cannot be met as written on free data** — see
 [The done criterion is unreachable as written](#the-done-criterion-is-unreachable-as-written).
@@ -517,6 +520,53 @@ a median ME of $122m against $724m for matched ones, confirming the gap concentr
 That fixes the fallback's ceiling at roughly **93% of firms / 96% of market equity**, and linkage
 becomes a measured component of the step-5 gap attribution rather than an unquantified caveat.
 
+### 2026-08-25 — The blank-check screen, promoted from inferred to measured
+
+The SIC 6799 exclusion was adopted on eight June cross-sections and recorded as *inferred*, because
+French publishes no such rule. That was the weakest link in the universe layer, so it was tested
+properly before anything was built on top of it.
+
+**Scored on every month French publishes** — 866 of them, 1926-07 to 2024-12, against his
+`ME_Breakpoints` median and firm count — and scored *against alternatives*, since a screen that
+works is worth less than a screen that works better than the other candidates:
+
+| variant | median \|err\| | p95 \|err\| | worst \|err\| | worst count diff |
+|---|---|---|---|---|
+| base, no exclusion | 0.17% | 4.12% | 23.63% | 171 |
+| **ex SIC 6799** | **0.08%** | **1.28%** | **3.96%** | **27** |
+| ex SIC 6770 | 0.17% | 4.12% | 23.63% | 171 |
+| ex SIC 6770 + 6799 | 0.08% | 1.28% | 3.96% | 27 |
+| ex SIC 67xx (all holding/investment) | 0.50% | 4.10% | 6.93% | 101 |
+| ex company name containing "ACQUISITION" | 0.17% | 2.89% | 17.15% | 120 |
+
+Four things this establishes that the June sample could not:
+
+1. **6799 is the whole effect.** Adding 6770 changes nothing — the two rows are identical to the
+   digit. CRSP does not use 6770 for these entities, which is why the original `677x` check came
+   back empty and briefly pointed away from SPACs.
+2. **It is not overfitted to 2022.** Median absolute error over 866 months is 0.08%, and the
+   1920s–1980s decades run at 0.00–0.11% median error with a worst *count* difference of 2 firms.
+   Sixty years of near-exact agreement is not something a patch tuned to one year produces.
+3. **Broadening it is worse.** Excluding all of SIC 67xx overshoots — median count difference −18,
+   median error up to 0.50% — so the boundary is at 6799 specifically, not at "investment-like".
+4. **SIC beats the name heuristic.** Matching "ACQUISITION" in the company name is materially worse
+   (worst error 17.15% against 3.96%), so the classification is doing real work that a string match
+   does not replicate.
+
+**Status change:** the *screen* is now a measured result, selected against alternatives on the full
+published history. The *mechanism* remains unknown and is still labelled inferred — French may be
+excluding these through a CRSP vintage reclassification rather than an SIC filter, and both produce
+the same observable. That distinction is kept in `config.py` and the README because it is the part
+that could still be wrong.
+
+**Residual, logged rather than chased.** The 2020s decade retains a median error of −1.77% and a
+median count difference of +14 firms; the worst single month is 2022-03 at −3.96% with 23 extra
+firms. Every one of the twelve worst months falls in 2020–2024 and every one is negative, so this
+is a systematic small-firm surplus in the recent period, not noise. It is an order of magnitude
+smaller than the 18.6% it replaced. Two candidate explanations — further blank-check entities under
+other SIC codes, and CRSP vintage differences against French's 202606 build — and no evidence
+distinguishing them, so neither is claimed. Carried as open question 9.
+
 ### 2026-08-25 — Universe layer built and verified against live CRSP
 
 `ffrep/universe/` exists now: four modules, 183 tests total (96% coverage, and 100% on all three
@@ -569,6 +619,107 @@ passing with a worse number.
 
 WRDS tests are opt-in behind `FFREP_WRDS_TESTS=1` plus `WRDS_USERNAME`, and skip when credentials
 are absent, so a fresh clone with no subscription still runs green.
+
+### 2026-08-25 — Step 2: sort machinery, and breakpoints promoted from borrowed to derived
+
+`ffrep/construct/` exists. 266 tests, 97% coverage, all three construct modules at 100%.
+
+    sorts.py        characteristics and 2x3 bucket assignment
+    portfolios.py   value-weighted returns with weights that drift on retx
+    factors.py      six portfolios into SMB and HML
+
+**Breakpoints can be derived.** This was the README's largest standing
+limitation and it is now a choice rather than a constraint. Comparing breakpoints computed from our
+screened CRSP universe against French's published `ME_Breakpoints`, over **544 months and every
+percentile he reports** — 10,336 (month, percentile) pairs:
+
+| | value |
+|---|---|
+| median error | **−0.000%** |
+| mean absolute error | 0.508% |
+| 95th percentile absolute error | 2.042% |
+| within 1% | 85.7% of pairs |
+| within 2% | 94.7% of pairs |
+| size breakpoint (p50) alone | 0.389% mean absolute error, 89.0% within 1% |
+
+Error is smallest in the middle of the distribution (0.33–0.42% mean absolute from p50 to p70) and
+largest in the small tail (1.08% at p5), which is the expected shape — the bottom percentiles sit
+where the firm density is highest and a handful of universe differences move the value most.
+
+**The interpolation convention was measured, not assumed.** The first implementation used linear
+interpolation because it is the numpy default, which is exactly the kind of unexamined choice this
+project is supposed to avoid. Scoring all five numpy conventions against French over **1960–1989** —
+chosen because CRSP data that old cannot plausibly have been restated, so vintage differences
+cannot confound the comparison:
+
+| method | median error | mean \|error\| | within 0.5% |
+|---|---|---|---|
+| **lower** | **0.0000%** | **0.2240%** | **85.0%** |
+| nearest | 0.0049% | 0.2458% | 83.2% |
+| linear | 0.0886% | 0.2774% | 83.2% |
+| midpoint | 0.1076% | 0.3094% | 80.8% |
+| higher | 0.1943% | 0.3971% | 72.2% |
+
+`lower` is unbiased to four decimal places where every alternative is not, and its median absolute
+difference from French is **$0.0048m — inside the $0.005m half-ulp of his own two-decimal
+reporting**, so for half of all pairs the two agree as closely as his published precision can
+express. Switched the default and pinned it in `config.py` with the table.
+
+It also makes the bucket edges coherent rather than arbitrary: `lower` returns an actual firm's
+market equity, and that firm belongs in the bucket at or below the breakpoint — which is precisely
+the inclusive-lower-edge rule the sort uses. Two conventions that were independently chosen turn
+out to be the same convention, which is weak evidence that both are right.
+
+**The drift asymmetry, stated as a number.** Weights drift on `retx` (ex-dividend) because market
+capitalisation grows by price appreciation only; returns accrue on `ret` because the holder
+receives the dividend. Using `ret` for both is the natural mistake and it compounds across a
+twelve-month holding period, progressively overweighting high-dividend firms — and dividend yield
+correlates with value, so the error lands disproportionately on HML. `test_drift_uses_retx_not_ret`
+constructs a case where the correct answer is 0.05 and the wrong convention gives 0.0545, so the
+distinction is proven to matter rather than merely asserted.
+
+**A docstring that overstated the code, found by re-reading it.** `portfolios.py` claimed "a firm
+whose return is missing has its weight dropped from that month forward". The implementation
+actually treats the two kinds of missing differently: missing `retx` ends the position permanently
+(there is no defensible weight to carry), while missing `ret` only excludes the firm from that
+month. Both are defensible; conflating them in prose is not. Corrected, and both behaviours pinned
+by `TestMissingKindsAreDistinct`.
+
+**WRDS connection retry.** The server intermittently refuses the first connection of a session —
+seen twice. The `wrds` package responds by falling back to an interactive `input()` prompt, which
+under a script raises `EOFError` from inside the library and killed a 30-minute validation run.
+`connect()` now retries and treats `EOFError` as what it actually is: this library's way of
+reporting a failed handshake, not real end-of-input. Six tests cover it against a fake module, and
+`wrds_source.py` coverage went 64% → 86% as a result.
+
+#### What is verified, and what is not
+
+Distinguishing these is the point, so they are separated explicitly.
+
+**Verified against an external reference:** the universe screen, the derived breakpoints, the
+interpolation convention, and the market-equity computation. All measured against French's
+published files or CRSP's own `mthcap` field, over decades rather than sample points.
+
+**Verified only against hand computation:** the 2x3 bucket assignment, the drift arithmetic, the
+factor algebra, and the missing-data semantics. These are correct implementations of what they are
+documented to do, on cross-sections small enough to check by eye. That is a weaker claim than the
+above — it establishes internal consistency, not agreement with French.
+
+**Not verified at all, and not yet verifiable:**
+
+* **The construct layer has never run on real data.** BE/ME needs the Compustat extract, which has
+  not been pulled. Every construct test uses synthetic input. Implemented is not verified.
+* **The inclusive-lower-edge bucket convention** is coherent with the measured `lower` quantile
+  method but has never been checked against French's own portfolio assignments. With continuous
+  data exact ties are near-measure-zero, so the empirical cost is expected to be negligible — but
+  "expected" is the operative word.
+* **The `retx` drift convention** is proven to differ from the alternative and matches the
+  documented Fama-French method, but has not been validated against French's published portfolio
+  *returns*. That is step 4's job and is the first real test of this layer.
+
+**Inherited residual.** Derived breakpoints carry open question 9 forward: the 2020s decade shows
+1.90% mean absolute error against 0.21–0.37% for the 1960s–1980s, tracking the same unexplained
++14-firm surplus. Deriving breakpoints does not fix it and was never going to.
 
 ## Open questions
 
@@ -624,6 +775,12 @@ are absent, so a fresh clone with no subscription still runs green.
    and goes to fidelity with the published recipe plus an explicit Shumway adjustment. The CIZ
    equivalence is kept as a regression test.
 
+9. **What drives the residual +14 NYSE firms in the 2020s?** After the blank-check exclusion the
+   median error is −1.77% for the 2020s decade against ≤0.11% for 1926–1989, and all twelve worst
+   months are 2020–2024 and all negative. Systematic, small, and unexplained. Candidates: more
+   blank-check entities under other SIC codes, or CRSP vintage differences against French's 202606
+   build. No evidence separates them; do not guess in code.
+
 7. **Does the SIC 6799 screen belong at the universe layer or the sort layer?** It changes the
    breakpoint universe, so it must apply before breakpoints are computed. Open only as a question of
    where it lives in the code, not whether it applies.
@@ -638,7 +795,9 @@ are absent, so a fresh clone with no subscription still runs green.
 | CRSP universe screen reproduces French's NYSE cross-section | **Done, verified** — within 1.3% of the published median and 9 firms in 2022; 18 live-CRSP tests |
 | PERMNO↔GVKEY linkage | **Done, measured** — CUSIP fallback at 92.9% of firms / 96.1% of ME; CCM unavailable |
 | Delisting returns (Shumway 1997) | **Implemented, unit-tested** — not yet exercised on a full panel |
-| 2×3 size × BE/ME sorts, NYSE breakpoints (step 2) | **Not started** — `construct/` is an empty package |
+| 2×3 size × BE/ME sorts, NYSE breakpoints (step 2) | **Implemented, hand-verified** — 100% covered; never run on real data |
+| NYSE breakpoints derived rather than borrowed | **Done, verified** — median error −0.000% over 544 months and every published percentile |
+| Quantile convention matched to French | **Done, measured** — `lower`, selected against 4 alternatives on 1960–1989 |
 | June formation on prior-December accounting | Not started |
 | SMB, HML, UMD, RMW, CMA constructed bottom-up | Not started |
 | Correlation with French's published factors > 0.99 | **Unreachable as specified.** Ceiling measured at 0.917 (large-cap) — see step 1 |

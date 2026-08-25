@@ -3,10 +3,10 @@
 Building SMB, HML, UMD, RMW and CMA from individual firm data — and decomposing, in basis points,
 every source of difference from Kenneth French's published series.
 
-> **Status: in progress.** Step 1 (the ceiling) is complete and the CRSP universe layer is built and
-> verified against live data; the sort machinery is not written yet. 183 tests, 96% coverage. This
-> README will be rewritten around the full results when there are any. Reasoning is logged in
-> [`LOG.md`](LOG.md).
+> **Status: in progress.** Steps 1 and 2 are complete and the CRSP universe layer is verified
+> against live data; the sort machinery is written but has not yet run on real data. 266 tests,
+> 97% coverage. This README will be rewritten around the full results when there are any. Reasoning
+> is logged in [`LOG.md`](LOG.md).
 
 ## The result so far
 
@@ -88,10 +88,12 @@ that are not visible to us.
 1. ~~**Establish the ceiling first**~~ — **done**, above. Bounding the project from published data
    before writing construction code cost an afternoon and changed what the project is trying to
    prove.
-2. **Sort machinery** — in progress. Breakpoint application, portfolio assignment, value-weighted
-   returns with monthly drift between annual rebalances. Tested against synthetic cross-sections
-   with hand-computable answers, because the sort is where a replication goes silently wrong: a
-   `>=` for a `>`, or June market equity used for the BE/ME ratio where December is required.
+2. ~~**Sort machinery**~~ — **done**, and hand-verified. Breakpoint application, portfolio
+   assignment, value-weighted returns with drift between annual rebalances. Tested against
+   synthetic cross-sections with hand-computable answers, because the sort is where a replication
+   goes silently wrong: a `>=` for a `>`, or June market equity used for the BE/ME ratio where
+   December is required. Two conventions were *measured* rather than assumed — the percentile
+   interpolation method and the weight-drift return — and both are described below.
 3. **Universe assembly** from CRSP + Compustat — **the screen is built and verified**. Reproduces
    French's published NYSE cross-section to within 1.3% on the median and 9 firms in June 2022,
    across four decades. Two corrections were each worth several percent and neither was obvious;
@@ -105,7 +107,7 @@ that are not visible to us.
 ```bash
 python scripts/fetch_reference_data.py   # ~11 small files from French's library
 python scripts/ceiling_analysis.py       # reproduces the table above
-pytest                                   # 183 tests; skips cleanly without data or WRDS
+pytest                                   # 266 tests; skips cleanly without data or WRDS
 
 # with a WRDS subscription -- validates the universe screen against CRSP
 FFREP_WRDS_TESTS=1 WRDS_USERNAME=<user> pytest tests/integration/test_universe_wrds.py
@@ -161,23 +163,31 @@ Stated here rather than buried, because they bound what any number in this repo 
   PERMNO↔GVKEY join is an 8-character CUSIP match covering 92.9% of firms and 96.1% of market
   equity, and the missing names skew small. This is the largest single limitation and it is
   permanent; step 5 measures what it costs rather than assuming it is negligible.
-- **The blank-check exclusion is inferred, not documented.** CRSP tags SPACs with share code 11, so
-  they pass an ordinary-common-shares filter; through 2021–22 that put up to 164 excess names into
-  the NYSE cross-section and dragged the June-2022 median 18.6% below French's. Excluding SIC 6799
-  reconciles the two to 1.3%, and improves every historical year rather than trading one against
-  another — but French does not publish this rule anywhere. It is inferred from matching his counts
-  and his stated intent to exclude closed-end-fund-like vehicles.
+- **The blank-check exclusion is measured, but its mechanism is inferred.** CRSP tags SPACs with
+  share code 11, so they pass an ordinary-common-shares filter; through 2021–22 that put up to 164
+  excess names into the NYSE cross-section and dragged the June-2022 median 18.6% below French's.
+  Excluding SIC 6799 is validated on all **866 months** French publishes — median absolute error
+  0.08% against 0.17% unscreened — and beats every alternative tested (6770 does nothing, 67xx
+  overshoots, name-matching is worse). What is *not* established is why: French publishes no such
+  rule, and a CRSP vintage reclassification would produce the same observable. A residual +14 firms
+  and −1.77% median error persists through the 2020s and is unexplained.
 - **CRSP ends 2024-12-31**, French's files are built from the 202606 vintage. Comparisons stop at
   2024-12, and a residual of roughly 8% at the 5th percentile in June 2024 is consistent with
   small-cap restatement between vintages. Noted, not chased.
-- **NYSE breakpoints are currently borrowed, not derived.** French's own breakpoint files are used.
-  This is now a choice rather than a constraint — the universe screen reproduces his NYSE
-  cross-section closely enough to derive them — and deriving them independently is a step-2 task.
-  Until then they carry the *current* CRSP vintage's restatements, a mild lookahead.
+- **~~NYSE breakpoints are borrowed, not derived.~~ Retired.** They are now derived from our own
+  screened CRSP universe. Validated against French's published files over **544 months and every
+  percentile he reports**: median error −0.000%, mean absolute error 0.51%, 85.7% of pairs within
+  1%. The percentile convention was selected by scoring all five numpy methods against him over
+  1960–1989 — `lower` is unbiased where `linear` carries a +0.09% median error. His files are
+  retained as the validation reference, which is the right role for them.
 - **Delisting returns are implemented but not yet exercised** on a full panel. The Shumway (1997)
   −30% convention is applied to performance-related delistings with a missing return; 193 of 29,106
   delisting events in this subscription qualify.
-- **Steps 2, 4, 5 and 6 are not built.** Everything above the "result so far" section is measured;
+- **The sort machinery has never run on real data.** BE/ME needs the Compustat extract, which has
+  not been pulled, so every construct test uses synthetic input. The arithmetic is verified against
+  hand computation — internal consistency — which is a weaker claim than the breakpoint and
+  universe results, which are verified against French. Implemented is not verified.
+- **Steps 4, 5 and 6 are not built.** Everything above the "result so far" section is measured;
   everything below it is a plan.
 
 ## Relationship to the earlier projects

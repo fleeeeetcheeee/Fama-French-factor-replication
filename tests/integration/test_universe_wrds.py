@@ -197,3 +197,77 @@ class TestFormatEquivalence:
         # SIC travels with the name record rather than with today's view.
         assert abs(ciz_companies.median() / siz_companies.median() - 1) < 0.05
         assert abs(len(ciz_companies) - len(siz_companies)) <= 30
+
+
+class TestDerivedBreakpoints:
+    """
+    Can we derive NYSE breakpoints instead of borrowing French's published files?
+
+    This is the test that decides whether the README's "breakpoints are borrowed,
+    not derived" limitation stands. Measured over 544 months and every percentile
+    French reports: median error -0.000%, mean absolute error 0.51%, 85.7% of
+    (month, percentile) pairs within 1%. See LOG.md, 2026-08-25.
+
+    Tolerances here are per-month and looser than that aggregate, because a
+    single month can sit in the tail of the distribution without indicating a
+    regression.
+    """
+
+    @pytest.mark.parametrize("ym", ["1970-06", "1990-06", "2010-06"])
+    def test_derived_median_matches_french(self, june_cross_sections, french_me, ym):
+        from ffrep.construct.sorts import nyse_size_breakpoint
+
+        median, _ = french_me
+        if ym not in set(june_cross_sections.ym):
+            pytest.skip(f"{ym} not in the pulled cross-sections")
+        universe = nyse_breakpoint_universe(june_cross_sections[june_cross_sections.ym == ym])
+        derived = nyse_size_breakpoint(universe["me"])
+        gap = derived / median[_month_end(ym)] - 1
+        assert abs(gap) < 0.03, f"{ym}: derived NYSE median is {gap:+.2%} from French's"
+
+    def test_derived_percentile_curve_matches_french(self, june_cross_sections, french_me):
+        """
+        The full curve, not just the median — a size breakpoint can agree while
+        the tails are wrong, and the tails are where the error concentrates
+        (mean absolute error is 1.08% at p5 against 0.39% at p50).
+        """
+        from ffrep.construct.sorts import breakpoints_from_nyse
+
+        config = Config()
+        requires_real(config, "bp_me")
+        table = load_breakpoints(config.french_path("bp_me"))
+        universe = nyse_breakpoint_universe(
+            june_cross_sections[june_cross_sections.ym == "1990-06"]
+        )
+        published = table.values.loc[_month_end("1990-06")]
+
+        pcts = (10, 30, 50, 70, 90)
+        derived = breakpoints_from_nyse(universe["me"], pcts)
+        for pct, mine in zip(pcts, derived):
+            gap = mine / published[pct] - 1
+            assert abs(gap) < 0.04, f"p{pct}: derived breakpoint is {gap:+.2%} from French's"
+
+    def test_derived_breakpoints_are_monotone(self, june_cross_sections):
+        """A sanity invariant that holds regardless of how well we match French."""
+        from ffrep.construct.sorts import breakpoints_from_nyse
+
+        universe = nyse_breakpoint_universe(
+            june_cross_sections[june_cross_sections.ym == "2010-06"]
+        )
+        derived = breakpoints_from_nyse(universe["me"], tuple(range(5, 100, 5)))
+        assert all(b > a for a, b in zip(derived, derived[1:]))
+
+    def test_size_breakpoint_splits_nyse_in_half(self, june_cross_sections):
+        """
+        Self-consistency: by construction the NYSE median must put half of NYSE
+        on each side. Catches an inverted inequality in the bucket assignment
+        that a comparison against French could mask.
+        """
+        from ffrep.construct.sorts import nyse_size_breakpoint, size_bucket
+
+        universe = nyse_breakpoint_universe(
+            june_cross_sections[june_cross_sections.ym == "2010-06"]
+        )
+        buckets = size_bucket(universe["me"], nyse_size_breakpoint(universe["me"]))
+        share_small = (buckets == "S").mean()
+        assert abs(share_small - 0.5) < 0.01
