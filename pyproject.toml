@@ -28,6 +28,20 @@ dev = [
     "matplotlib>=3.8.0",
 ]
 
+# Install with --no-deps. The wrds package declares "pandas<2.3", which is a
+# stale pin rather than a real incompatibility: it connects and queries fine
+# against the pandas 3.0.5 this project is verified on. Installing it normally
+# silently downgraded pandas and broke five tests with a datetime64 overflow
+# that had nothing to do with WRDS -- an hour spent on a dependency resolver
+# masquerading as a bug in our own code.
+#
+#     pip install --no-deps wrds psycopg2-binary sqlalchemy
+wrds = [
+    "wrds>=3.5.0",
+    "psycopg2-binary>=2.9.0",
+    "sqlalchemy>=2.0.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=src/ffrep --cov-report=term-missing -v"

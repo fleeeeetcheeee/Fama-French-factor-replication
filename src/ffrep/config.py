@@ -104,6 +104,56 @@ MOMENTUM_SKIP_MONTHS = 1
 REQUIRE_POSITIVE_BOOK_EQUITY = True
 
 
+# --- CRSP universe screen ---------------------------------------------------
+#
+# French documents his breakpoint universe as "all NYSE stocks that have a CRSP
+# share code of 10 or 11 and have good shares and price data. We exclude closed
+# end funds and REITs." In CRSP's own coding those last two exclusions are
+# already implied: REITs carry share code 18 and closed-end funds 44/48, so a
+# 10/11 filter removes them before the sentence is reached.
+#
+# Every constant below was validated against French's published ME_Breakpoints
+# file, not adopted from a paper. See LOG.md, 2026-08-25.
+
+#: Ordinary common shares. 10 and 11 differ only in whether CRSP needed to
+#: further define the security; both are ordinary common stock.
+COMMON_SHARE_CODES: tuple[int, ...] = (10, 11)
+
+#: NYSE only, for computing breakpoints. 31 is the "when-issued" variant of 1
+#: and is included for completeness — it is empty in modern data but present
+#: historically.
+NYSE_EXCHANGE_CODES: tuple[int, ...] = (1, 31)
+
+#: NYSE + AMEX + NASDAQ, for the population the breakpoints are *applied* to.
+#: The asymmetry between this and NYSE_EXCHANGE_CODES is the whole point of the
+#: Fama-French sort and is documented at length in reference/breakpoints.py.
+LISTED_EXCHANGE_CODES: tuple[int, ...] = (1, 2, 3, 31, 32, 33)
+
+#: SIC 6799 is "Investors, Not Elsewhere Classified" — CRSP's bucket for
+#: blank-check and SPAC entities, which carry share code 11 and therefore pass
+#: an ordinary-common-shares filter unchallenged.
+#:
+#: Excluding it is what reconciles our NYSE universe with French's. Without it
+#: the June-2022 NYSE median is 18.6% below his published value and the firm
+#: count 154 too high; with it, 1.3% and 9. It is not a patch tuned to 2022 —
+#: pre-2010 there are only 6-7 such firms in the entire NYSE cross-section, so
+#: it is nearly inert historically and still improves 1990, 2015 and 2018.
+#:
+#: Caveat, recorded because it matters: French does not publish this rule. It is
+#: inferred from matching his counts and his stated intent to exclude
+#: closed-end-fund-like vehicles. See LOG.md, 2026-08-25.
+EXCLUDED_SIC_CODES: tuple[int, ...] = (6799,)
+
+#: Delisting return imputed for performance-related delistings that have none,
+#: following Shumway (1997). Ignoring these biases the value leg upward, because
+#: value portfolios are disproportionately distressed firms.
+SHUMWAY_DELISTING_RETURN = -0.30
+
+#: CRSP delisting codes treated as performance-related. 500 is "reason
+#: unavailable"; 520-584 span the liquidation and insufficient-capital reasons.
+PERFORMANCE_DELISTING_CODES: tuple[int, ...] = (500,) + tuple(range(520, 585))
+
+
 @dataclass
 class Config:
     """Paths and run-scoped settings. Derived paths computed in __post_init__."""

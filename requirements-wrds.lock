@@ -1,0 +1,20 @@
+# Optional WRDS access. Install with --no-deps, on top of requirements.lock:
+#
+#     pip install -r requirements.lock
+#     pip install --no-deps -r requirements-wrds.lock
+#     pip install -e . --no-deps
+#
+# --no-deps is required, not stylistic. The wrds package declares "pandas<2.3",
+# which is a stale pin rather than a real incompatibility -- it connects and
+# queries correctly against the pandas 3.0.5 in requirements.lock. Installing it
+# normally downgrades pandas to 2.2.3 and breaks five reference-layer tests with
+# a datetime64 overflow that has nothing to do with WRDS.
+#
+# wrds also declares ipython but never imports it (verified by AST scan across
+# the installed package), so --no-deps drops 15 unused packages as well.
+#
+# Verified against Python 3.13.9 on 2026-08-25: connects, lists libraries, and
+# runs the 18 integration tests in tests/integration/test_universe_wrds.py.
+psycopg2-binary==2.9.12
+SQLAlchemy==2.0.52
+wrds==3.5.0

@@ -132,3 +132,39 @@ def requires_real(config: Config, *keys: str) -> None:
             f"reference data not downloaded: {missing}. "
             f"Run `python scripts/fetch_reference_data.py`."
         )
+
+
+# --- WRDS -------------------------------------------------------------------
+#
+# WRDS tests hit a live, credentialed, rate-limited database. They are opt-in
+# via FFREP_WRDS_TESTS=1 so the default suite stays fast and offline, and they
+# skip rather than fail when credentials are absent — a fresh clone must run
+# green without a subscription.
+
+WRDS_USERNAME_ENV = "WRDS_USERNAME"
+
+
+def requires_wrds():
+    """Skip unless WRDS tests are explicitly enabled and credentials exist."""
+    import os
+    from pathlib import Path as _Path
+
+    if os.getenv("FFREP_WRDS_TESTS") != "1":
+        pytest.skip("WRDS tests are opt-in; set FFREP_WRDS_TESTS=1 to run them")
+    if not os.getenv(WRDS_USERNAME_ENV):
+        pytest.skip(f"{WRDS_USERNAME_ENV} is not set")
+    if not (_Path.home() / ".pgpass").exists():
+        pytest.skip("~/.pgpass not found; see LOG.md for WRDS credential setup")
+
+
+@pytest.fixture(scope="session")
+def wrds_db():
+    """A session-scoped WRDS connection, opened once and closed at teardown."""
+    import os
+
+    requires_wrds()
+    from ffrep.universe.wrds_source import connect
+
+    db = connect(os.environ[WRDS_USERNAME_ENV])
+    yield db
+    db.close()
