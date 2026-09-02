@@ -99,6 +99,41 @@ INVESTMENT_BREAKPOINT_PERCENTILES = (30, 70)
 MOMENTUM_LOOKBACK_MONTHS = 12
 MOMENTUM_SKIP_MONTHS = 1
 
+#: Last fiscal year in which balance-sheet deferred taxes are ADDED to book
+#: equity. French's published definition — "the book value of stockholders'
+#: equity, plus balance sheet deferred taxes and investment tax credit (if
+#: available), minus the book value of preferred stock" — carries no cutoff, and
+#: his variable-definitions page states none. His published breakpoints do.
+#:
+#: Mean absolute error against the published NYSE BE-ME breakpoints, every
+#: percentile he reports:
+#:
+#:     book equity definition          formation 1963-1993   formation 1994-2024
+#:     SE + DT - PS  (always add DT)          3.42%                 8.69%
+#:     SE - PS       (never add DT)          10.64%                 0.96%
+#:     DT through FY1992, none after          3.42%                 0.96%
+#:
+#: The break is a step, not a drift: mean |error| runs 1.05% for formation 1993
+#: and 9.91% for 1994 under "always add", and 10.08% then 0.61% under "never
+#: add". Scanning the cutoff over FY1988-FY1998 gives a clean single minimum:
+#:
+#:     cutoff FY   1989   1990   1991   1992   1993   1994   1995
+#:     mean |err|  2.39%  2.03%  1.55%  1.12%  1.56%  1.99%  2.44%
+#:
+#: So deferred taxes are added through fiscal years ending in 1992 and dropped
+#: from fiscal years ending in 1993 onward. This is measured, not adopted: no
+#: source states it, and a web search for it returns nothing.
+#:
+#: What is INFERRED is the reason. SFAS 109 was issued February 1992 and takes
+#: effect for fiscal years beginning after 15 December 1992 — the first affected
+#: fiscal year end for a calendar-year filer is December 1993, which is exactly
+#: where the break lands. That coincidence is suggestive and is not proof, and
+#: the alternative — that Compustat's txditc changed meaning rather than
+#: French's use of it — is not separable with the data here. Note the fit rules
+#: out the trivial version of that alternative: if txditc were simply absent
+#: after 1992 the two definitions would coincide, and they differ by 8pp.
+DEFERRED_TAX_LAST_FISCAL_YEAR: int | None = 1992
+
 #: Firms with non-positive book equity are excluded from the BE/ME sorts
 #: entirely — the ratio is not meaningful and French drops them.
 REQUIRE_POSITIVE_BOOK_EQUITY = True

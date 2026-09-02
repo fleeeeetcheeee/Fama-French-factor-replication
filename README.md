@@ -3,10 +3,11 @@
 Building SMB, HML, UMD, RMW and CMA from individual firm data — and decomposing, in basis points,
 every source of difference from Kenneth French's published series.
 
-> **Status: in progress.** Steps 1 and 2 are complete and the CRSP universe layer is verified
-> against live data; the sort machinery is written but has not yet run on real data. 266 tests,
-> 97% coverage. This README will be rewritten around the full results when there are any. Reasoning
-> is logged in [`LOG.md`](LOG.md).
+> **Status: in progress.** Steps 1 and 2 are complete; step 3's universe and book-equity layers are
+> verified against live CRSP and Compustat. The sort machinery is written but has not yet run on
+> real data — the join between book equity and the June cross-section is the last missing piece.
+> 333 tests, 98% coverage. This README will be rewritten around the full results when there are any.
+> Reasoning is logged in [`LOG.md`](LOG.md).
 
 ## The result so far
 
@@ -49,6 +50,38 @@ Three readings worth taking:
 The factor *algebra* is separately verified exact: HML and SMB rebuilt from French's six
 value-weighted portfolios match his published series to **0.5 bps**, the half-ulp of his own
 2-decimal reporting.
+
+## A finding, on the way to the factor
+
+**Fama-French book equity stops adding balance-sheet deferred taxes after fiscal 1992, and the
+published definition does not say so.**
+
+The definition — "stockholders' equity, plus balance sheet deferred taxes and investment tax credit
+(if available), minus the book value of preferred stock" — carries no date qualifier, and neither
+does French's variable-definitions page. His published NYSE BE/ME breakpoints do. Scored against
+every percentile he publishes:
+
+| book equity definition | formation 1963–1993 | formation 1994–2024 |
+|---|---|---|
+| `SE + DT − PS` (always add, as stated) | 3.42% | 8.69% |
+| `SE − PS` (never add) | 10.64% | 0.96% |
+| DT through FY1992, none after | **3.42%** | **0.96%** |
+
+It is a step, not a drift — 1.05% for formation 1993 against 9.91% for 1994 under "always add" —
+and scanning the cutoff year gives a clean single minimum at fiscal 1992 (1.12%, against 1.55% and
+1.56% either side).
+
+**The cutoff is measured. The reason for it is inferred.** SFAS 109 takes effect for fiscal years
+beginning after 15 December 1992, so the first affected year end for a calendar-year filer is
+December 1993 — exactly where the break lands. Suggestive, not proof: a change in what Compustat's
+`txditc` means would produce the same observable, and the two are not separable with this data. The
+distinction is kept in the code and in the log rather than resolved by assertion.
+
+With the cutoff applied, book equity tracks the published breakpoints at **1.08% mean absolute
+error over 1975–2024** with a −0.22% median bias. The residual decomposes by data availability
+rather than by era: 0.6–1.6% in 2016–2024 where the CUSIP match rate is 97–98%, and 4–13% in
+1963–1971 where Compustat covers 55–78% of NYSE and French is using hand-collected Moody's book
+equity that cannot be bought at any price.
 
 ## The question
 
@@ -94,10 +127,13 @@ that are not visible to us.
    goes silently wrong: a `>=` for a `>`, or June market equity used for the BE/ME ratio where
    December is required. Two conventions were *measured* rather than assumed — the percentile
    interpolation method and the weight-drift return — and both are described below.
-3. **Universe assembly** from CRSP + Compustat — **the screen is built and verified**. Reproduces
-   French's published NYSE cross-section to within 1.3% on the median and 9 firms in June 2022,
-   across four decades. Two corrections were each worth several percent and neither was obvious;
-   both are described below.
+3. **Universe assembly** from CRSP + Compustat — **screen and book equity built and verified; the
+   join between them is not**. The screen reproduces French's published NYSE cross-section to within
+   1.3% on the median and 9 firms in June 2022, across four decades; two corrections were each worth
+   several percent and neither was obvious, and both are described below. Book equity reproduces his
+   published BE/ME breakpoints at 1.08% mean absolute error over 1975–2024, which is where the
+   deferred-tax cutoff above came from. What does not yet exist is the formation join — book equity
+   against the June and December cross-sections — so the sort machinery still has no real input.
 4. **Bottom-up construction**, reported honestly.
 5. **Gap attribution**, by ablation.
 6. **q-factor extension** (Hou-Xue-Zhang 2015) and spanning tests against FF5 in both directions.
@@ -106,18 +142,26 @@ that are not visible to us.
 
 ```bash
 python scripts/fetch_reference_data.py   # ~11 small files from French's library
-python scripts/ceiling_analysis.py       # reproduces the table above
-pytest                                   # 266 tests; skips cleanly without data or WRDS
+python scripts/ceiling_analysis.py       # reproduces the ceiling table above
+pytest                                   # 333 tests; skips cleanly without data or WRDS
 
-# with a WRDS subscription -- validates the universe screen against CRSP
-FFREP_WRDS_TESTS=1 WRDS_USERNAME=<user> pytest tests/integration/test_universe_wrds.py
+# with a WRDS subscription
+export WRDS_USERNAME=<user>              # password comes from ~/.pgpass
+python scripts/validate_book_equity.py   # reproduces the deferred-tax table above, ~5 min
+FFREP_WRDS_TESTS=1 pytest tests/integration/   # universe screen and book equity vs CRSP
 ```
 
-The WRDS tests are the interesting ones: they assert that the CRSP universe screen reproduces
-French's *published* NYSE breakpoints — median, firm count, and the full percentile curve — at six
-June cross-sections from 1990 to 2022. Two of them assert that the corrections **matter**, so a
-regression that quietly drops the blank-check exclusion or the company-level aggregation fails
-rather than passing with a worse number.
+The WRDS tests are the interesting ones, and both suites are built the same way: they assert
+agreement with files **we did not produce**. `test_universe_wrds.py` checks the CRSP universe screen
+against French's published NYSE breakpoints — median, firm count, and the full percentile curve — at
+six June cross-sections from 1990 to 2022. `test_book_equity_wrds.py` checks the assembled
+book-equity definition against his published BE/ME breakpoints at seven formation years spanning
+1990–2024, and pins the deferred-tax cutoff from both sides: before the break, adding deferred taxes
+must beat omitting them by 3×; after it, the reverse.
+
+Several tests assert that the corrections **matter**, so a regression that quietly drops the
+blank-check exclusion, the company-level aggregation or the deferred-tax cutoff fails rather than
+passing with a worse number.
 
 ## Data sources
 
@@ -180,15 +224,30 @@ Stated here rather than buried, because they bound what any number in this repo 
   1%. The percentile convention was selected by scoring all five numpy methods against him over
   1960–1989 — `lower` is unbiased where `linear` carries a +0.09% median error. His files are
   retained as the validation reference, which is the right role for them.
+- **The deferred-tax cutoff is measured; its mechanism is inferred.** FY1992 is where the data puts
+  the break, with 8 percentage points of error either side of it and a single clean minimum in the
+  cutoff scan. *Why* he does it is not established — SFAS 109's effective date coincides exactly,
+  but a change in what Compustat's `txditc` means is observationally equivalent and this data cannot
+  separate them. Treated as an open question rather than a conclusion.
+- **Operating profitability and investment are implemented but their agreement with French is
+  unrecorded.** `validate_book_equity.py` scores both against his published `OP_Breakpoints` and
+  `INV_Breakpoints`, but no number is captured and no test asserts a bound. RMW's and CMA's sort
+  variables therefore sit at a weaker standard of evidence than BE/ME, and that gap is named rather
+  than papered over.
 - **Delisting returns are implemented but not yet exercised** on a full panel. The Shumway (1997)
   −30% convention is applied to performance-related delistings with a missing return; 193 of 29,106
   delisting events in this subscription qualify.
-- **The sort machinery has never run on real data.** BE/ME needs the Compustat extract, which has
-  not been pulled, so every construct test uses synthetic input. The arithmetic is verified against
-  hand computation — internal consistency — which is a weaker claim than the breakpoint and
-  universe results, which are verified against French. Implemented is not verified.
-- **Steps 4, 5 and 6 are not built.** Everything above the "result so far" section is measured;
-  everything below it is a plan.
+- **The sort machinery has never run on real data.** Book equity now exists on real Compustat, so
+  the blocker is no longer the data — it is that nothing yet joins book equity to the June and
+  December CRSP cross-sections. Every construct test still uses synthetic input, and the arithmetic
+  is verified against hand computation only. Internal consistency is a weaker claim than the
+  breakpoint, universe and book-equity results, which are verified against French. Implemented is
+  not verified.
+- **The full monthly CRSP panel has not been pulled.** The annual June/December cross-sections have
+  (318,114 security-months, all of CRSP), but the ~4.8M monthly rows that step 4 needs for returns
+  between rebalances have not.
+- **Steps 4, 5 and 6 are not built.** Everything in the two results sections above is measured;
+  everything after them is a plan.
 
 ## Relationship to the earlier projects
 

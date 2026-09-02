@@ -28,6 +28,8 @@ from typing import Any
 
 import pandas as pd
 
+from ffrep.config import NYSE_EXCHANGE_CODES
+
 #: Compustat fields needed for Fama-French book equity, profitability and
 #: investment. Pulling 26 of 949 columns rather than `select *` is the
 #: difference between a few hundred MB and an extract that will not fit.
@@ -129,6 +131,45 @@ def fetch_monthly_stock(db: Any, window: ExtractWindow) -> pd.DataFrame:
     )
 
 
+#: Months whose cross-sections the annual sorts need: June (size sort and value
+#: weights) and December (the BE/ME denominator). Pulling only these is what
+#: makes a whole-history NYSE extract cheap enough to run interactively —
+#: 318,114 security-months against roughly 1.9m for every month.
+ANNUAL_SORT_MONTHS: tuple[int, ...] = (6, 12)
+
+
+def fetch_nyse_month_ends(
+    db: Any, months: tuple[int, ...] = ANNUAL_SORT_MONTHS
+) -> pd.DataFrame:
+    """
+    NYSE cross-sections for the given calendar months, over all of CRSP.
+
+    The breakpoint universe, and nothing else: exchange is filtered in SQL
+    because NYSE is under a tenth of the rows and pulling the rest to discard
+    them in pandas is the difference between a minute and twenty.
+
+    Deliberately not date-bounded. The comparison against French's published
+    breakpoints is strongest on the decades old enough that CRSP cannot have
+    been restated since, so the whole history is the point.
+    """
+    month_list = ", ".join(str(int(m)) for m in months)
+    exchanges = ", ".join(str(c) for c in NYSE_EXCHANGE_CODES)
+    return db.raw_sql(
+        f"""
+        select a.permno, a.permco, a.date, a.prc, a.shrout, a.ret, a.retx,
+               b.shrcd, b.exchcd, b.siccd, b.comnam, b.cusip, b.ncusip
+        from crsp.msf a
+        join crsp.msenames b
+          on a.permno = b.permno
+         and b.namedt <= a.date
+         and a.date <= b.nameendt
+        where b.exchcd in ({exchanges})
+          and extract(month from a.date) in ({month_list})
+        """,
+        date_cols=["date"],
+    )
+
+
 def fetch_delistings(db: Any, window: ExtractWindow) -> pd.DataFrame:
     """CRSP delisting events, for the Shumway adjustment in ``delisting.py``."""
     return db.raw_sql(
@@ -152,15 +193,27 @@ def fetch_cusip_history(db: Any) -> pd.DataFrame:
     return db.raw_sql("select distinct permno, cusip, ncusip from crsp.msenames")
 
 
-def fetch_fundamentals(db: Any, window: ExtractWindow) -> pd.DataFrame:
-    """Compustat annual fundamentals, restricted to the standard consolidated view."""
+def fetch_fundamentals(
+    db: Any, window: ExtractWindow | None = None
+) -> pd.DataFrame:
+    """
+    Compustat annual fundamentals, restricted to the standard consolidated view.
+
+    ``window`` is optional because the book-equity validation wants all of it:
+    528,573 firm-years back to 1950, which is a few hundred MB and the only
+    honest way to compare against breakpoints French publishes from 1926.
+    """
     cols = ", ".join(FUNDA_FIELDS)
+    bounds = (
+        f"datadate between '{window.start}' and '{window.end}' and "
+        if window is not None
+        else ""
+    )
     return db.raw_sql(
         f"""
         select {cols}
         from comp.funda
-        where datadate between '{window.start}' and '{window.end}'
-          and {FUNDA_FILTER}
+        where {bounds}{FUNDA_FILTER}
         """,
         date_cols=["datadate"],
     )

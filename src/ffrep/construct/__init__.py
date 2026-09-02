@@ -1,6 +1,7 @@
 """
 Bottom-up factor construction: sorts, portfolios, factors.
 
+    book_equity.py  Compustat fundamentals into BE, profitability, investment
     sorts.py        characteristics and 2x3 bucket assignment
     portfolios.py   value-weighted returns with weights that drift on retx
     factors.py      six portfolios into SMB and HML
@@ -12,6 +13,18 @@ equity in the BE/ME denominator, drift on retx rather than ret — and each one
 changes the answer without changing whether the code runs.
 """
 
+from ffrep.construct.book_equity import (
+    accounting_year,
+    book_equity,
+    deferred_taxes,
+    drop_empty_records,
+    for_formation_year,
+    investment,
+    latest_fiscal_year,
+    operating_profitability,
+    preferred_stock,
+    stockholders_equity,
+)
 from ffrep.construct.factors import (
     build_2x3_factors,
     PORTFOLIO_LABELS,
@@ -36,19 +49,29 @@ from ffrep.construct.sorts import (
 )
 
 __all__ = [
+    "accounting_year",
     "assign_2x3",
     "assign_bucket",
+    "book_equity",
     "book_to_market",
     "build_2x3_factors",
+    "deferred_taxes",
     "drifted_weights",
+    "drop_empty_records",
     "equal_weighted_return",
+    "for_formation_year",
     "FormationInputs",
+    "investment",
+    "latest_fiscal_year",
     "nyse_size_breakpoint",
     "nyse_value_breakpoints",
+    "operating_profitability",
     "PORTFOLIO_LABELS",
     "portfolio_returns",
+    "preferred_stock",
     "size_bucket",
     "size_factor",
+    "stockholders_equity",
     "value_bucket",
     "value_factor",
     "value_weighted_return",

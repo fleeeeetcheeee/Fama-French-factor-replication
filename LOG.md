@@ -3,14 +3,20 @@
 **Tier:** 1 (Factor fluency) — first project of the tier
 **Spec:** `ResearchToDo.md` → Part 3 → Tier 1 → Project 3
 **Repo:** https://github.com/fleeeeetcheeee/Fama-French-factor-replication
-**Status:** **Steps 1 and 2 complete; the universe layer of step 3 built and verified against live
-CRSP.** 266 tests pass, 97% coverage. The reference layer reproduces published HML and SMB to
-French's own 0.5 bp rounding floor; `universe/` screens a real CRSP cross-section to within 1.3% of
-his published NYSE median across four decades; `construct/` holds the 2x3 sort machinery, and NYSE
-breakpoints are now **derived** rather than borrowed (median error −0.000% over 544 months).
+**Status:** **Steps 1 and 2 complete; step 3's universe and book-equity layers built and verified
+against live CRSP and Compustat.** 333 tests pass, 98% coverage. The reference layer reproduces
+published HML and SMB to French's own 0.5 bp rounding floor; `universe/` screens a real CRSP
+cross-section to within 1.3% of his published NYSE median across four decades; `construct/` holds
+the 2x3 sort machinery plus book equity, NYSE breakpoints are now **derived** rather than borrowed
+(median error −0.000% over 544 months), and book equity tracks his published BE/ME breakpoints at
+1.08% mean absolute error over 1975–2024.
 
-The construct layer has never run on real data — BE/ME needs the Compustat extract, which has not
-been pulled, so every sort test uses synthetic input. `qfactor/` is still empty.
+Along the way the book-equity work established something French does not document: **he stops adding
+balance-sheet deferred taxes after fiscal 1992**, measured on his own published breakpoints with a
+clean single minimum in the cutoff scan.
+
+What remains of step 3 is the **formation join** — nothing yet connects book equity to the June
+cross-section, so the sort machinery still has never run on real data. `qfactor/` is still empty.
 
 The spec's done criterion **cannot be met as written on free data** — see
 [The done criterion is unreachable as written](#the-done-criterion-is-unreachable-as-written).
@@ -721,6 +727,167 @@ above — it establishes internal consistency, not agreement with French.
 1.90% mean absolute error against 0.21–0.37% for the 1960s–1980s, tracking the same unexplained
 +14-firm surplus. Deriving breakpoints does not fix it and was never going to.
 
+### 2026-08-26 — Book equity, and a cutoff French does not document
+
+**Written retroactively on 2026-09-02.** The code and its validation run landed on 2026-08-26 and
+the entry was never written; what follows is reconstructed from the working tree, the validation
+script and the measured numbers pinned in `config.py` and the module docstring. The dead ends are
+therefore thinner here than in the entries above, which is exactly the cost the append-as-you-go
+rule exists to avoid.
+
+`ffrep/construct/book_equity.py` exists: BE, operating profitability and investment from Compustat
+annual. 100 new tests (55 unit, 34 live-Compustat integration, 11 for the widened extract queries),
+bringing the suite to **333 passing / 57 skipped, 98% coverage**, `book_equity.py` at 100%.
+
+#### The definition is three nested hierarchies in one English sentence
+
+Davis, Fama and French (2000) state it as prose; as code it is::
+
+    BE = SE + DT - PS
+    SE = SEQ, else CEQ + PSTK, else AT - LT
+    PS = PSTKRV, else PSTKL, else PSTK
+    DT = TXDITC
+
+Measured how often each fallback actually fires, on this subscription's 443,461 firm-years carrying
+any balance-sheet data (1950–2026):
+
+| SE branch | share | | PS branch | share |
+|---|---|---|---|---|
+| `SEQ` | 95.79% | | `PSTKRV` | 99.19% |
+| `CEQ + PSTK` | 0.74% | | `PSTKL` | 0.12% |
+| `AT − LT` | 2.57% | | `PSTK` | 0.51% |
+| unavailable | 0.89% | | unavailable | 0.19% |
+
+At those rates the hierarchies look like defensive padding, and that reading is wrong. In the 1950s
+`seq` is missing on **98.7%** of rows, so `AT − LT` carries essentially the whole decade; by 1970
+`seq` is missing on 3.3%. Dropping the hierarchy would not degrade the early sample, it would
+delete it. Worth having measured rather than assumed, because the cheap version of this module —
+`seq + txditc - pstkrv` — is indistinguishable from the correct one on a recent cross-section.
+
+#### The finding: French stops adding deferred taxes after fiscal 1992, and says so nowhere
+
+His definition carries no date qualifier and his variable-definitions page states none. His
+published `BE-ME_Breakpoints` do. Scored against every percentile he publishes, split at the break:
+
+| book equity definition | formation 1963–1993 | formation 1994–2024 |
+|---|---|---|
+| `SE + DT − PS` (always add, as stated) | 3.42% | 8.69% |
+| `SE − PS` (never add) | 10.64% | 0.96% |
+| DT through FY1992, none after | **3.42%** | **0.96%** |
+
+It is a step, not a drift: mean absolute error runs 1.05% for formation 1993 and 9.91% for 1994
+under "always add", and 10.08% then 0.61% under "never add". Scanning the cutoff over FY1988–FY1998
+gives a clean single minimum:
+
+| cutoff FY | 1989 | 1990 | 1991 | **1992** | 1993 | 1994 | 1995 |
+|---|---|---|---|---|---|---|---|
+| mean \|err\| | 2.39% | 2.03% | 1.55% | **1.12%** | 1.56% | 1.99% | 2.44% |
+
+**The cutoff is measured; the reason for it is inferred.** SFAS 109 was issued February 1992 and
+takes effect for fiscal years beginning after 15 December 1992 — the first affected fiscal year end
+for a calendar-year filer is December 1993, which is exactly where the break lands. That is
+suggestive and it is not proof. The alternative — that Compustat's `txditc` changed meaning rather
+than French's use of it — is not separable with the data here. The fit does rule out the trivial
+version of that alternative: if `txditc` were simply absent after 1992 the two definitions would
+coincide, and they differ by 8pp.
+
+Recorded the same way as the SIC 6799 screen, and for the same reason: the *observable* is
+established on decades of published data, the *mechanism* is a hypothesis, and conflating the two
+is how a replication acquires a confident wrong story. Both live in `config.py` next to the
+constant they justify, so the next reader meets the evidence before the number.
+
+Searched for prior art before claiming it: nothing states this cutoff. It is the kind of thing that
+is presumably folk knowledge inside shops that do this for a living, and it is not written down
+where a free search finds it.
+
+#### With the cutoff in, the residual is linkage rather than accounting
+
+Shipped definition against the published NYSE BE/ME breakpoints, 1975–2024: **1.08% mean absolute
+error, −0.22% median bias.** The error decomposes by data availability, not by year:
+
+* **2016–2024**, where the CUSIP match rate is 97–98%: 0.6–1.6%.
+* **1963–1971**, where Compustat covers 55–78% of NYSE and French is using hand-collected Moody's
+  book equity that is not purchasable at any price: 4–13%.
+
+So the remaining gap sits where the *inputs* are missing, which is the shape you want — it says the
+formula is right and the panel is short, rather than the reverse. Pre-1975 is reported by the script
+but excluded from the summary for that reason.
+
+Two independent checks beyond the percentiles, both of which the formula could fail while leaving
+the percentiles intact:
+
+* **The BE ≤ 0 count.** French publishes it separately. Percentiles are computed from positive
+  values only, so a systematic sign error would move this count and nothing else. Asserted within 12
+  firms.
+* **The firm-count shortfall.** We are always *short* of French, never over, and the shortfall is
+  bounded at 80 NYSE firms. Stated as a shortfall rather than a tolerance so it cannot be misread as
+  agreement — it is the CUSIP linkage's cost showing up in a second place, consistent with the
+  92.9%/96.1% measured in the universe layer.
+
+#### The year label, settled empirically rather than assumed
+
+A `BE-ME_Breakpoints` row is stamped with the **formation year t**, not the accounting year *t−1*.
+Getting this backwards shifts every breakpoint by one year and still produces a full, plausible
+table — no crash, no missing data, just a silently wrong answer, which is the failure mode this
+whole project is organised against. Tested both readings: the formation-year reading wins by an
+order of magnitude, and the medians settle it outright — our accounting-year-1976 median BE/ME
+equals French's 1977 row to three decimals. Pinned by `TestYearLabel`.
+
+#### Three smaller decisions, each of which was a fork
+
+* **`datadate.year`, not Compustat's `fyear`.** They disagree on 13.3% of rows — every fiscal year
+  ending January through May, which Compustat labels with the *previous* calendar year. French's
+  rule is "the fiscal year ending in calendar year t−1", which is the year of the end date. Using
+  `fyear` would match a May-1990 fiscal year to a June-1990 formation: one month after the fiscal
+  year closed and months before the annual report existed. That is lookahead of exactly the kind
+  Project 01 exists to prevent, and it would have been invisible in the output.
+* **Empty records are dropped *before* the one-record-per-year selection.** 16.1% of `INDL`/`STD`
+  rows carry no balance-sheet data at all. A blank row with a later `datadate` would otherwise win
+  the "last fiscal year end in the calendar year" tie-break and displace a populated one, turning a
+  usable firm-year into a missing one for reasons nothing downstream would surface. Checked whether
+  they are financial-format filers hiding under the wrong `indfmt`: only 32 of 85,112 have a
+  populated `FS` row at the same gvkey and date, so they are placeholders, not a coverage gap.
+* **A missing cutoff raises rather than defaulting.** `deferred_taxes` needs `datadate` to apply the
+  cutoff and raises `KeyError` without it. A silently un-applied cutoff is an 8-percentage-point
+  error that leaves no trace in the output — the same reasoning as Project 02's refusal to skip a
+  same-timestamp order.
+
+Two conventions the published sentence does not settle are exposed as keyword arguments rather than
+hardcoded, so step 5 can ablate them instead of arguing about them: reconstructing `TXDITC` from
+`TXDB + ITCB` when the combined field is missing (9.7% of non-blank rows, of which 22,147 have a
+component), and treating all-missing preferred stock as zero (824 firm-years, 0.19%).
+
+#### A pandas trap worth the line it costs
+
+Compustat's total-assets field is named `at`, which collides with `DataFrame.at`, the scalar
+indexer. `frame.at` silently returns the indexer rather than the column and fails later with an
+unrelated-looking `AttributeError`. Every access in the module is `frame["at"]`.
+
+#### Extract changes this required
+
+`fetch_fundamentals` takes an optional window now — the validation wants all 528,573 firm-years back
+to 1950, because comparing against breakpoints French publishes from 1926 on a bounded window would
+be answering an easier question. `fetch_nyse_month_ends` is new: June and December cross-sections
+over all of CRSP, exchange filtered in SQL. 318,114 security-months against roughly 1.9m for every
+month, which is the difference between a whole-history validation that runs interactively and one
+that does not.
+
+#### What this does and does not establish
+
+**Verified against an external reference:** the book-equity formula, the deferred-tax cutoff, the
+year label, and the BE ≤ 0 count — all against French's published breakpoint files, over five
+decades.
+
+**Implemented and hand-tested only:** operating profitability and investment. `validate_book_equity.py`
+scores both against `OP_Breakpoints` and `INV_Breakpoints` in percentage points, but **the numbers
+were not recorded and no integration test asserts them.** BE/ME got the full treatment and RMW/CMA's
+inputs did not. That is an honest gap, not a claim, and it is carried as open item 9 — it costs one
+script run to close.
+
+**Still not verified:** the sort machinery downstream of this. BE now exists on real data, so the
+blocker named in the step-2 entry is gone — but nothing has yet joined book equity to the June
+cross-section and produced a portfolio. That join is the last missing piece of step 3.
+
 ## Open questions
 
 1. ~~**WRDS / CRSP / Compustat access — requested, approval pending.**~~ **Approved 2026-08-24.**
@@ -785,6 +952,20 @@ above — it establishes internal consistency, not agreement with French.
    breakpoint universe, so it must apply before breakpoints are computed. Open only as a question of
    where it lives in the code, not whether it applies.
 
+10. **Why does French stop adding deferred taxes after fiscal 1992?** The cutoff itself is measured
+    and settled — FY1992, a clean single minimum, 8pp of error either side of it. The *mechanism* is
+    not. SFAS 109 takes effect for fiscal years beginning after 15 December 1992, which is exactly
+    where the break lands, but a change in what Compustat's `txditc` means would produce the same
+    observable and the two are not separable with the data here. Same epistemic status as the SIC
+    6799 screen, and recorded the same way. Do not let the SFAS 109 story harden into a claim.
+
+11. **Does the formation join belong in `construct/` or at a seam of its own?** It has to reach
+    across the layer boundary — CRSP June and December cross-sections from `universe/`, book equity
+    from `construct/`, the CUSIP linker between them — and the layering rule says extraction may not
+    transform. The join is pure transformation over frames both layers already produced, so
+    `construct/formation.py` is the presumption, but the alternative is a thin `pipeline/` that owns
+    cross-layer assembly and keeps `construct/` free of universe concepts.
+
 ## Status against the done criterion
 
 | Requirement | State |
@@ -798,7 +979,10 @@ above — it establishes internal consistency, not agreement with French.
 | 2×3 size × BE/ME sorts, NYSE breakpoints (step 2) | **Implemented, hand-verified** — 100% covered; never run on real data |
 | NYSE breakpoints derived rather than borrowed | **Done, verified** — median error −0.000% over 544 months and every published percentile |
 | Quantile convention matched to French | **Done, measured** — `lower`, selected against 4 alternatives on 1960–1989 |
-| June formation on prior-December accounting | Not started |
+| Book equity from Compustat (SE + DT − PS) | **Done, verified** — 1.08% mean abs error vs published BE/ME breakpoints, 1975–2024 |
+| Deferred-tax cutoff matched to French | **Done, measured** — FY1992, single minimum; undocumented by him |
+| Operating profitability and investment | **Implemented, hand-tested** — scored by the script but the numbers are unrecorded and unasserted |
+| June formation on prior-December accounting | **Partially** — `for_formation_year` selects the records; nothing joins them to the June cross-section |
 | SMB, HML, UMD, RMW, CMA constructed bottom-up | Not started |
 | Correlation with French's published factors > 0.99 | **Unreachable as specified.** Ceiling measured at 0.917 (large-cap) — see step 1 |
 | q-factor model + spanning tests | Not started (GRS test implemented and tested) |
@@ -821,17 +1005,35 @@ above — it establishes internal consistency, not agreement with French.
 5. **`evaluate/regression.py` is at 93%** — the uncovered lines are `OLSResult.summary()` and one
    GRS branch. Cosmetic, but `summary()` is the path a human reads results through, so it should
    not stay untested.
-6. ~~**Nothing committed.**~~ **Closed 2026-08-15.** Two commits on top of the remote's
-   `2461c42 Initial commit`, pushed to `origin/main`:
-   `ba41458` (scaffold) and `e9f3dc2` (reference layer + step 1). Working tree clean.
+6. ~~**Nothing committed.**~~ **Closed 2026-08-15.** Committed in layers on top of the remote's
+   `2461c42 Initial commit`: scaffold, reference layer + step 1, universe layer, blank-check screen,
+   sort machinery, WRDS retry, derived breakpoints, and book equity. Everything through
+   `ced1c6f` is pushed to `origin/main`; the book-equity commit is local and awaiting a push.
 
-7. **The universe layer has never been run over the full history.** Every WRDS test uses single
-   June cross-sections, which is enough to validate the screen and cheap enough to run often. The
-   full 1990–2024 monthly extract — roughly 4.8M `msf` rows plus `funda` — has not been pulled, and
-   the `ExtractWindow` path is therefore implemented but not exercised at scale. Same distinction
-   Project 01 draws: implemented is not verified.
+7. **The universe layer has never been run over the full *monthly* history.** Partially closed on
+   2026-08-26: `fetch_nyse_month_ends` pulled June and December cross-sections over all of CRSP
+   (318,114 security-months) and `fetch_fundamentals` pulled all 528,573 Compustat firm-years, so
+   the extract path is exercised at scale for the annual sorts. What is still unpulled is the
+   **full monthly** panel — roughly 4.8M `msf` rows — which step 4 needs for the twelve monthly
+   returns between rebalances and which no test has touched. Same distinction Project 01 draws:
+   implemented is not verified.
 
-8. **Derive NYSE breakpoints rather than borrowing French's.** Now feasible — the screen reproduces
-   his NYSE cross-section closely enough — and it would remove the mild lookahead his files carry
-   (they are built from the 202606 vintage's restatements). A step-2 task, and the point at which
-   the README's borrowed-breakpoints limitation can be retired.
+8. ~~**Derive NYSE breakpoints rather than borrowing French's.**~~ **Closed 2026-08-25.** Done and
+   validated over 544 months and every published percentile; median error −0.000%. His files are
+   retained as the validation reference, which is the right role for them, and the README's
+   borrowed-breakpoints limitation is retired.
+
+9. **OP and INV are scored but their numbers are not recorded.** `validate_book_equity.py` compares
+   both against `OP_Breakpoints` and `INV_Breakpoints` in percentage points and prints a per-decade
+   table; nothing captures the output and no integration test asserts a bound, so RMW's and CMA's
+   sort variables sit at a weaker standard of evidence than BE/ME. One script run closes it, and it
+   should be closed before step 6 builds on them.
+
+10. **The formation join does not exist.** `for_formation_year` picks the right accounting records
+    and `FormationInputs` names the three series a formation needs (`me_june`, `me_december`,
+    `book_equity`), but nothing constructs one from CRSP and Compustat. This is the single piece
+    standing between the current tree and step 4's first bottom-up HML series. See open question 11
+    for where it should live.
+
+11. **The full monthly CRSP extract has not been pulled.** Step 4 needs it and it is the one
+    remaining large pull — a few hundred MB of Parquet into the gitignored `data/processed/`.
