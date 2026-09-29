@@ -3,8 +3,10 @@ Bottom-up factor construction: sorts, portfolios, factors.
 
     book_equity.py  Compustat fundamentals into BE, profitability, investment
     sorts.py        characteristics and 2x3 bucket assignment
+    formation.py    the June join: CRSP cross-sections + Compustat -> portfolios
+    monthly.py      the monthly-rebalanced factors: momentum and the market
     portfolios.py   value-weighted returns with weights that drift on retx
-    factors.py      six portfolios into SMB and HML
+    factors.py      six portfolios into SMB, HML, RMW, CMA, UMD
 
 Every function here is a pure transformation of frames, unit-tested against
 cross-sections small enough to verify by hand. The construction is a pile of

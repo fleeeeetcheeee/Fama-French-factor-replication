@@ -5,6 +5,8 @@ Universe assembly: from raw CRSP rows to the Fama-French cross-section.
     screen.py        which securities are a firm  (share codes, SPACs, PERMCO)
     delisting.py     Shumway's -30% for performance delistings
     linker.py        PERMNO -> GVKEY, and the measured cost of not having CCM
+    links.py         PERMCO -> GVKEY candidates, resolved per formation year
+    panel.py         the monthly security panel every construction step reads
 
 The layering rule mirrors Project 01's: extraction may not transform, and
 transformation may not reach the network. Everything except ``wrds_source`` is
