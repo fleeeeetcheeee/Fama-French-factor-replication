@@ -44,11 +44,13 @@ a complete, well-formed, entirely wrong breakpoint table.
 
 Honesty caveat
 --------------
-Every file states it "was created using the 202606 CRSP database" — the
-*current* vintage, carrying restatements that were not known at the time. Using
-them therefore introduces a mild lookahead, and means the breakpoints are
-borrowed rather than independently derived. Both belong in the limitations
-section of the README.
+Every file states the CRSP database it "was created using" — a recent vintage,
+carrying restatements that were not known at the time. Using them in a build
+would therefore introduce a mild lookahead and borrow rather than derive the
+breakpoints. The build does neither: it derives its breakpoints from CRSP's
+point-in-time exchange codes (``construct/sorts.py``), and these files serve as
+the validation reference and, in the attribution only, as the "borrowed"
+alternative whose effect is measured.
 """
 
 from __future__ import annotations

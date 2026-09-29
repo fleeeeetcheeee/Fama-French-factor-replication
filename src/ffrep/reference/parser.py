@@ -83,6 +83,18 @@ SIX_INV_PORTFOLIOS = {
 }
 
 
+#: The six size x prior (2-12) return portfolios, source of UMD. "LoPRIOR" is
+#: the losers, "HiPRIOR" the winners.
+SIX_PRIOR_PORTFOLIOS = {
+    "SMALL LoPRIOR": "SmallLoser",
+    "ME1 PRIOR2": "SmallNeutralPRIOR",
+    "SMALL HiPRIOR": "SmallWinner",
+    "BIG LoPRIOR": "BigLoser",
+    "ME2 PRIOR2": "BigNeutralPRIOR",
+    "BIG HiPRIOR": "BigWinner",
+}
+
+
 @dataclass
 class FrenchTable:
     """One table extracted from a French CSV, with the title that introduced it."""
@@ -321,6 +333,8 @@ def construct_smb_from_portfolios(portfolios: pd.DataFrame) -> pd.Series:
     if missing:
         raise ValueError(f"portfolios frame is missing {missing}")
 
-    small = portfolios[["SmallValue", "SmallNeutral", "SmallGrowth"]].mean(axis=1)
-    big = portfolios[["BigValue", "BigNeutral", "BigGrowth"]].mean(axis=1)
+    # skipna=False: a missing leg means no SMB that month, not an SMB silently
+    # averaged over the legs that happen to be present.
+    small = portfolios[["SmallValue", "SmallNeutral", "SmallGrowth"]].mean(axis=1, skipna=False)
+    big = portfolios[["BigValue", "BigNeutral", "BigGrowth"]].mean(axis=1, skipna=False)
     return (small - big).rename("SMB")

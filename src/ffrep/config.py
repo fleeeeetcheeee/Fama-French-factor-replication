@@ -38,22 +38,51 @@ FRENCH_FILES: dict[str, str] = {
     "portfolios_6_beme": "6_Portfolios_2x3_CSV.zip",
     "portfolios_6_op": "6_Portfolios_ME_OP_2x3_CSV.zip",
     "portfolios_6_inv": "6_Portfolios_ME_INV_2x3_CSV.zip",
-    # NYSE breakpoints. These are the reason this project is feasible at all
-    # on free data: reproducing them from scratch would need a historical
-    # exchange-listing map, which is not free. Using French's own removes the
-    # single largest data blocker, at the cost of not having independently
-    # derived them — recorded as a limitation, not hidden.
+    # NYSE breakpoints. The build derives its own from CRSP's point-in-time
+    # exchange codes; these are the validation reference, and the attribution
+    # substitutes them to price "derived versus borrowed" (worth +0.0004 of HML
+    # correlation over 1990-2020 — see LOG.md, 2026-09-28).
     "bp_me": "ME_Breakpoints_CSV.zip",
     "bp_beme": "BE-ME_Breakpoints_CSV.zip",
     "bp_op": "OP_Breakpoints_CSV.zip",
     "bp_inv": "INV_Breakpoints_CSV.zip",
     "bp_prior": "Prior_2-12_Breakpoints_CSV.zip",
+    # Size x prior-return portfolios, source of UMD, with firm counts.
+    "portfolios_6_prior": "6_Portfolios_ME_Prior_12_2_CSV.zip",
+}
+
+#: Davis-Fama-French hand-collected book equity from Moody's manuals, keyed by
+#: CRSP PERMNO, 1926-2001. Not part of either vintage: it is a fixed historical
+#: dataset French publishes once, at the top of the library.
+FRENCH_HISTORICAL_BE = "Historical_BE_Data.zip"
+
+#: The library in two vintages, as subdirectories of the same host.
+#:
+#: ``current`` is the live ``ftp/`` directory. Since the January 2025 release it
+#: is built from CRSP's CIZ files, where "monthly returns are compounded daily
+#: returns with dividends reinvested on their ex-dates" — a different return
+#: definition from the legacy one (French's change notes).
+#:
+#: ``fiz202412`` is the December 2024 release, the last one built from the
+#: legacy SIZ/FIZ files. Same file format, same return definition and same CRSP
+#: vintage as this project's ``crsp.msf`` extract (which ends 2024-12-31), so it
+#: is the like-for-like reference. Scoring against both separates what our
+#: construction gets wrong from what French's own format change moved.
+FRENCH_VINTAGES: dict[str, str] = {
+    "current": "ftp",
+    "fiz202412": "ftp_202412",
 }
 
 # --- Hou-Xue-Zhang q-factors -----------------------------------------------
 # Published free at global-q.org; used as the reference series for the
-# q-factor extension and for the spanning tests in both directions.
-GLOBAL_Q_URL = "https://global-q.org/data/factors/q5_factors_monthly_2024.csv"
+# q-factor extension and for the spanning tests in both directions. The files
+# are renamed each year (the 2024 URL this project first used now returns 404),
+# so the base and the names are separate constants.
+GLOBAL_Q_BASE_URL = "https://global-q.org/uploads/1/2/2/6/122679606"
+GLOBAL_Q_FILES: dict[str, str] = {
+    "factors": "q5_factors_monthly_2025.csv",
+    "portfolios": "benportf_me_ia_roe_monthly_2025.csv",
+}
 
 # --- Fama-French construction protocol -------------------------------------
 #
@@ -121,17 +150,17 @@ MOMENTUM_SKIP_MONTHS = 1
 #:     mean |err|  2.39%  2.03%  1.55%  1.12%  1.56%  1.99%  2.44%
 #:
 #: So deferred taxes are added through fiscal years ending in 1992 and dropped
-#: from fiscal years ending in 1993 onward. This is measured, not adopted: no
-#: source states it, and a web search for it returns nothing.
+#: from fiscal years ending in 1993 onward.
 #:
-#: What is INFERRED is the reason. SFAS 109 was issued February 1992 and takes
-#: effect for fiscal years beginning after 15 December 1992 — the first affected
-#: fiscal year end for a calendar-year filer is December 1993, which is exactly
-#: where the break lands. That coincidence is suggestive and is not proof, and
-#: the alternative — that Compustat's txditc changed meaning rather than
-#: French's use of it — is not separable with the data here. Note the fit rules
-#: out the trivial version of that alternative: if txditc were simply absent
-#: after 1992 the two definitions would coincide, and they differ by 8pp.
+#: CORRECTION (2026-09-28). This was first recorded as an undocumented finding.
+#: It is documented: French's data-library change notes state that "because of
+#: changes in the treatment of deferred taxes described in FASB 109, files
+#: produced from August 2016 on no longer add Deferred Taxes and Investment Tax
+#: Credit to BE for fiscal years ending in 1993 or later." The variable
+#: definitions page omits it, which is where it was looked for. What the scan
+#: above contributes is independent *confirmation* of that convention from the
+#: published numbers — a clean single minimum at exactly the documented year —
+#: not a discovery. The FASB 109 mechanism is French's stated reason, not ours.
 DEFERRED_TAX_LAST_FISCAL_YEAR: int | None = 1992
 
 #: Firms with non-positive book equity are excluded from the BE/ME sorts
@@ -259,21 +288,38 @@ class Config:
         self.french_raw = self.raw_root / "french"
         self.global_q_raw = self.raw_root / "global_q"
 
+        self.wrds_extract = self.processed_root / "wrds"
         self.characteristics = self.processed_root / "characteristics"
         self.factors = self.processed_root / "factors"
         self.results = self.data_root / "results"
 
-    def french_url(self, key: str) -> str:
+    def french_url(self, key: str, vintage: str = "current") -> str:
         """Full download URL for a named French library file."""
         if key not in FRENCH_FILES:
             raise KeyError(
                 f"unknown French file {key!r}; known: {sorted(FRENCH_FILES)}"
             )
-        return f"{FRENCH_BASE_URL}/{FRENCH_FILES[key]}"
+        if vintage not in FRENCH_VINTAGES:
+            raise KeyError(f"unknown vintage {vintage!r}; known: {sorted(FRENCH_VINTAGES)}")
+        base = FRENCH_BASE_URL.rsplit("/", 1)[0]
+        return f"{base}/{FRENCH_VINTAGES[vintage]}/{FRENCH_FILES[key]}"
 
-    def french_path(self, key: str) -> Path:
+    def french_path(self, key: str, vintage: str = "current") -> Path:
         """Local path a named French library file is cached at."""
-        return self.french_raw / FRENCH_FILES[key]
+        if vintage not in FRENCH_VINTAGES:
+            raise KeyError(f"unknown vintage {vintage!r}; known: {sorted(FRENCH_VINTAGES)}")
+        folder = self.french_raw if vintage == "current" else self.raw_root / f"french_{vintage}"
+        return folder / FRENCH_FILES[key]
+
+    def historical_be_path(self) -> Path:
+        """Local path of French's Moody's book-equity file."""
+        return self.french_raw / FRENCH_HISTORICAL_BE
+
+    def global_q_path(self, key: str) -> Path:
+        """Local path of a named global-q.org file."""
+        if key not in GLOBAL_Q_FILES:
+            raise KeyError(f"unknown global-q file {key!r}; known: {sorted(GLOBAL_Q_FILES)}")
+        return self.global_q_raw / GLOBAL_Q_FILES[key]
 
     def require_real_user_agent(self) -> None:
         """

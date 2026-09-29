@@ -181,3 +181,21 @@ class TestUrls:
         """A duplicated filename would silently overwrite one series with another."""
         urls = [config.french_url(k) for k in FRENCH_FILES]
         assert len(set(urls)) == len(urls)
+
+
+class TestVintages:
+    def test_current_vintage_keeps_the_original_layout(self, config):
+        assert config.french_path("factors_3") == config.french_raw / FRENCH_FILES["factors_3"]
+        assert "/ftp/" in config.french_url("factors_3")
+
+    def test_fiz_archive_lives_in_its_own_directory(self, config):
+        """Two vintages of one filename must never overwrite each other."""
+        current = config.french_path("factors_3")
+        archive = config.french_path("factors_3", "fiz202412")
+        assert current != archive
+        assert archive.name == current.name
+        assert "/ftp_202412/" in config.french_url("factors_3", "fiz202412")
+
+    def test_unknown_vintage_raises(self, config):
+        with pytest.raises(KeyError, match="vintage"):
+            config.french_path("factors_3", "ftp_1999")

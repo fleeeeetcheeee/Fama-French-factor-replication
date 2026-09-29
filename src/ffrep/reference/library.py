@@ -18,7 +18,14 @@ from pathlib import Path
 
 import requests
 
-from ffrep.config import FRENCH_FILES, GLOBAL_Q_URL, Config
+from ffrep.config import (
+    FRENCH_BASE_URL,
+    FRENCH_FILES,
+    FRENCH_HISTORICAL_BE,
+    GLOBAL_Q_BASE_URL,
+    GLOBAL_Q_FILES,
+    Config,
+)
 
 log = logging.getLogger(__name__)
 
@@ -71,29 +78,43 @@ def _download(url: str, destination: Path, *, force: bool = False) -> Path:
     return destination
 
 
-def download_french(config: Config, key: str, *, force: bool = False) -> Path:
+def download_french(
+    config: Config, key: str, *, force: bool = False, vintage: str = "current"
+) -> Path:
     """Download one named file from French's library."""
-    return _download(config.french_url(key), config.french_path(key), force=force)
+    return _download(
+        config.french_url(key, vintage), config.french_path(key, vintage), force=force
+    )
 
 
-def download_all_french(config: Config, *, force: bool = False) -> dict[str, Path]:
+def download_all_french(
+    config: Config, *, force: bool = False, vintage: str = "current"
+) -> dict[str, Path]:
     """
-    Download every file listed in `FRENCH_FILES`.
+    Download every file listed in `FRENCH_FILES`, from one vintage.
 
     Returns {key: path}. Fails loudly on the first error rather than collecting
-    them: these are eleven small files from one host, so a failure means the
-    host or the naming scheme has changed, and continuing would only produce a
-    partial reference set that a later step would misread as complete.
+    them: these are small files from one host, so a failure means the host or
+    the naming scheme has changed, and continuing would only produce a partial
+    reference set that a later step would misread as complete.
     """
     paths: dict[str, Path] = {}
     for index, key in enumerate(FRENCH_FILES):
-        paths[key] = download_french(config, key, force=force)
+        paths[key] = download_french(config, key, force=force, vintage=vintage)
         if index < len(FRENCH_FILES) - 1:
             time.sleep(COURTESY_DELAY_SECONDS)
     return paths
 
 
-def download_global_q(config: Config, *, force: bool = False) -> Path:
-    """Download the Hou-Xue-Zhang q-factor series from global-q.org."""
-    destination = config.global_q_raw / Path(GLOBAL_Q_URL).name
-    return _download(GLOBAL_Q_URL, destination, force=force)
+def download_global_q(config: Config, key: str = "factors", *, force: bool = False) -> Path:
+    """Download one Hou-Xue-Zhang file from global-q.org."""
+    return _download(
+        f"{GLOBAL_Q_BASE_URL}/{GLOBAL_Q_FILES[key]}", config.global_q_path(key), force=force
+    )
+
+
+def download_historical_be(config: Config, *, force: bool = False) -> Path:
+    """Download French's Moody's book-equity file (vintage-independent)."""
+    return _download(
+        f"{FRENCH_BASE_URL}/{FRENCH_HISTORICAL_BE}", config.historical_be_path(), force=force
+    )
