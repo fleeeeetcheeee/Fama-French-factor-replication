@@ -77,10 +77,23 @@ def to_numpy_dtypes(frame: pd.DataFrame) -> pd.DataFrame:
     year's portfolio arithmetic take ~3 seconds instead of milliseconds.
 
     Integers stay integers when nothing is missing (identifiers); otherwise
-    they become float with ``NaN``. Strings are left alone.
+    they become float with ``NaN``. Text becomes pandas' default string dtype,
+    whose missing value is ``NaN``: the ``wrds`` package wrote ``string[pd.NA]``
+    and the direct client writes plain text, and joins refuse to mix the two.
+
+    Dates are brought to one resolution, nanoseconds. Extracts written by
+    different clients arrive as ``datetime64[us]`` or ``[ms]``, and pandas'
+    ``merge_asof`` refuses to join keys of different resolutions — found when an
+    extract re-pulled with a new client broke the q-factor ROE lookup.
     """
     out = frame.copy()
     for column, dtype in out.dtypes.items():
+        if pd.api.types.is_datetime64_dtype(dtype) and dtype != "datetime64[ns]":
+            out[column] = out[column].astype("datetime64[ns]")
+            continue
+        if isinstance(dtype, pd.StringDtype) or dtype == object:
+            out[column] = out[column].astype("str")
+            continue
         if isinstance(dtype, pd.Float64Dtype) or str(dtype) == "Float32":
             out[column] = out[column].to_numpy(dtype=float, na_value=np.nan)
         elif isinstance(dtype, pd.core.dtypes.dtypes.BaseMaskedDtype) and dtype.kind in "iu":

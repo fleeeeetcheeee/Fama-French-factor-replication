@@ -2,16 +2,12 @@
 Tests for the parts of the extraction layer that do not need a network.
 
 `wrds_source` is deliberately thin, but two things in it are real logic and
-worth pinning: the window guard, and the connection retry — which exists
-because the `wrds` package reports a failed handshake by falling back to an
-interactive prompt, and that prompt raises EOFError under any non-interactive
-caller.
+worth pinning: the window guard, and the connection retry — the WRDS server
+intermittently refuses the first login of a session, and a refused login must
+be retried while a programming error must not be.
 """
 
 from __future__ import annotations
-
-import sys
-import types
 
 import pytest
 
@@ -77,72 +73,92 @@ class TestFundaFields:
             assert clause in FUNDA_FILTER
 
 
-class FakeWrdsModule(types.ModuleType):
-    """Stand-in for the `wrds` package, counting Connection attempts."""
+class FakeEngine:
+    """Stand-in for a SQLAlchemy engine: records the login probe."""
 
-    def __init__(self, failures: int, exc: type[Exception] = EOFError):
-        super().__init__("wrds")
+    def __init__(self):
+        self.probes = []
+        self.disposed = False
+
+    def connect(self):
+        engine = self
+
+        class _Conn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def exec_driver_sql(self, sql):
+                engine.probes.append(sql)
+
+        return _Conn()
+
+    def dispose(self):
+        self.disposed = True
+
+
+class FlakyFactory:
+    """An engine factory whose first ``failures`` logins raise."""
+
+    def __init__(self, failures: int, exc: type[BaseException] = OSError):
         self.calls = 0
-        self._failures = failures
-        self._exc = exc
+        self.failures = failures
+        self.exc = exc
+        self.engine = FakeEngine()
 
-        def Connection(**kwargs):  # noqa: N802 - mirrors the real API
-            self.calls += 1
-            if self.calls <= self._failures:
-                raise self._exc("simulated handshake failure")
-            return f"connection<{kwargs.get('wrds_username')}>"
-
-        self.Connection = Connection
+    def __call__(self, username):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise self.exc("simulated handshake failure")
+        return self.engine
 
 
-@pytest.fixture
-def fake_wrds(monkeypatch):
-    def install(failures: int, exc: type[Exception] = EOFError) -> FakeWrdsModule:
-        module = FakeWrdsModule(failures, exc)
-        monkeypatch.setitem(sys.modules, "wrds", module)
-        monkeypatch.setattr(wrds_source, "CONNECT_BACKOFF_SECONDS", 0.0)
-        return module
-
-    return install
+@pytest.fixture(autouse=True)
+def no_backoff(monkeypatch):
+    monkeypatch.setattr(wrds_source, "CONNECT_BACKOFF_SECONDS", 0.0)
 
 
 class TestConnectRetry:
-    def test_succeeds_first_time_without_retrying(self, fake_wrds):
-        module = fake_wrds(failures=0)
-        assert wrds_source.connect("someone") == "connection<someone>"
-        assert module.calls == 1
+    def test_succeeds_first_time_and_probes_the_login(self):
+        factory = FlakyFactory(failures=0)
+        conn = wrds_source.connect("someone", engine_factory=factory)
+        assert isinstance(conn, wrds_source.WrdsConnection)
+        assert factory.calls == 1
+        assert factory.engine.probes == ["select 1"]
 
-    def test_retries_past_a_transient_failure(self, fake_wrds):
+    def test_retries_past_a_transient_failure(self):
         """The observed failure mode: first attempt refused, second succeeds."""
-        module = fake_wrds(failures=1)
-        assert wrds_source.connect("someone") == "connection<someone>"
-        assert module.calls == 2
+        factory = FlakyFactory(failures=1)
+        wrds_source.connect("someone", engine_factory=factory)
+        assert factory.calls == 2
 
-    def test_eof_is_treated_as_a_failed_handshake_not_real_input(self, fake_wrds):
-        """
-        The wrds package prompts via input() when a connection fails, so under a
-        script or test that surfaces as EOFError rather than a connection error.
-        """
-        module = fake_wrds(failures=CONNECT_ATTEMPTS, exc=EOFError)
-        with pytest.raises(ConnectionError):
-            wrds_source.connect("someone")
-        assert module.calls == CONNECT_ATTEMPTS
-
-    def test_os_errors_are_retried_too(self, fake_wrds):
-        module = fake_wrds(failures=1, exc=OSError)
-        assert wrds_source.connect("someone") == "connection<someone>"
-        assert module.calls == 2
-
-    def test_gives_up_with_an_actionable_message(self, fake_wrds):
-        fake_wrds(failures=CONNECT_ATTEMPTS)
+    def test_gives_up_with_an_actionable_message(self):
+        factory = FlakyFactory(failures=CONNECT_ATTEMPTS)
         with pytest.raises(ConnectionError, match="pgpass"):
-            wrds_source.connect("someone")
+            wrds_source.connect("someone", engine_factory=factory)
+        assert factory.calls == CONNECT_ATTEMPTS
 
-    def test_attempt_count_is_caller_overridable(self, fake_wrds):
-        module = fake_wrds(failures=99)
+    def test_attempt_count_is_caller_overridable(self):
+        factory = FlakyFactory(failures=99)
         with pytest.raises(ConnectionError):
-            wrds_source.connect("someone", attempts=2)
-        assert module.calls == 2
+            wrds_source.connect("someone", attempts=2, engine_factory=factory)
+        assert factory.calls == 2
+
+    def test_non_connection_errors_are_not_swallowed(self):
+        """A programming error must surface, not be retried as a flaky login."""
+        factory = FlakyFactory(failures=1, exc=ValueError)
+        with pytest.raises(ValueError):
+            wrds_source.connect("someone", engine_factory=factory)
+
+    def test_close_disposes_the_engine(self):
+        factory = FlakyFactory(failures=0)
+        wrds_source.connect("someone", engine_factory=factory).close()
+        assert factory.engine.disposed
+
+    def test_login_waits_long_enough_for_a_duo_push_but_not_forever(self):
+        assert 30 <= wrds_source.CONNECT_TIMEOUT_SECONDS <= 600
 
 
 class RecordingDb:
@@ -278,3 +294,14 @@ class TestFetchIdentifiers:
         fetch_compustat_securities(db)
         assert "from comp.security" in db.sql
         assert "cusip" in db.sql and "gvkey" in db.sql
+
+
+class TestMissingColumns:
+    def test_reports_only_the_absent_columns(self):
+        class Db:
+            def raw_sql(self, sql, **kwargs):
+                import pandas as pd
+                assert "table_schema = 'comp'" in sql and "table_name = 'fundq'" in sql
+                return pd.DataFrame({"column_name": ["gvkey", "ibq"]})
+
+        assert wrds_source.missing_columns(Db(), "comp", "fundq", ("gvkey", "ibq", "dvpsxq")) == ["dvpsxq"]

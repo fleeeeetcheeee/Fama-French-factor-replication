@@ -2,7 +2,7 @@
 Pull every WRDS table the bottom-up build needs into the local Parquet store.
 
     export WRDS_USERNAME=...          # credentials come from ~/.pgpass
-    python scripts/extract_wrds.py                 # everything
+    python scripts/extract_wrds.py < /dev/null     # everything; approve one Duo push
     python scripts/extract_wrds.py --only comp_fundq crsp_delist
 
 Writes ``data/processed/wrds/<name>.parquet`` plus ``manifest.json`` (rows,
@@ -29,6 +29,8 @@ import pandas as pd
 from ffrep.config import Config
 from ffrep.store import EXTRACTS, extract_path, read_manifest, write_atomic, write_manifest
 from ffrep.universe.wrds_source import (
+    FUNDA_FIELDS,
+    FUNDQ_FIELDS,
     ExtractWindow,
     connect,
     fetch_compustat_securities,
@@ -37,6 +39,7 @@ from ffrep.universe.wrds_source import (
     fetch_monthly_stock,
     fetch_name_history,
     fetch_quarterly_fundamentals,
+    missing_columns,
 )
 
 #: CRSP monthly (SIZ) begins 1925-12-31 and ends 2024-12-31 on this
@@ -84,6 +87,11 @@ def main() -> int:
 
     db = connect(username)
     try:
+        for schema, table, fields in (("comp", "funda", FUNDA_FIELDS), ("comp", "fundq", FUNDQ_FIELDS)):
+            absent = missing_columns(db, schema, table, fields)
+            if absent:
+                print(f"{schema}.{table} has no column(s) {absent}; nothing was pulled")
+                return 1
         for name in names:
             source, pull, date_column = PULLS[name]
             print(f"pulling {name} ...", flush=True)

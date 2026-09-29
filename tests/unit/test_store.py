@@ -30,9 +30,14 @@ class TestDtypes:
         out = to_numpy_dtypes(pd.DataFrame({"siccd": pd.array([6799, None], dtype="Int64")}))
         assert out["siccd"].dtype == np.float64
 
-    def test_strings_are_untouched(self):
-        frame = pd.DataFrame({"cusip": pd.array(["12345678", None], dtype="string")})
-        assert str(to_numpy_dtypes(frame)["cusip"].dtype) == "string"
+    def test_text_from_either_client_ends_up_the_same_dtype(self):
+        """Joins refuse string[pd.NA] against plain text; both must normalise alike."""
+        old_client = pd.DataFrame({"gvkey": pd.array(["001004", None], dtype="string")})
+        new_client = pd.DataFrame({"gvkey": ["001004", None]})
+        a, b = to_numpy_dtypes(old_client)["gvkey"], to_numpy_dtypes(new_client)["gvkey"]
+        assert a.dtype == b.dtype
+        assert a.iloc[0] == "001004" and pd.isna(a.iloc[1])
+        pd.DataFrame({"gvkey": a}).merge(pd.DataFrame({"gvkey": b}), on="gvkey")
 
 
 class TestStore:
@@ -51,3 +56,10 @@ class TestStore:
     def test_unknown_extract_name_raises(self, tmp_path):
         with pytest.raises(KeyError):
             extract_path(Config(data_root=tmp_path), "crsp_daily")
+
+
+def test_dates_are_brought_to_one_resolution():
+    """merge_asof refuses keys of different resolutions; extracts must agree."""
+    ms = pd.DataFrame({"d": pd.to_datetime(["2020-01-31"]).astype("datetime64[ms]")})
+    us = pd.DataFrame({"d": pd.to_datetime(["2020-01-31"]).astype("datetime64[us]")})
+    assert to_numpy_dtypes(ms)["d"].dtype == to_numpy_dtypes(us)["d"].dtype == "datetime64[ns]"

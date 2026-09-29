@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "ffrep"
 version = "0.1.0"
 description = "Bottom-up construction of the Fama-French and q-factor portfolios, benchmarked against Ken French's published series"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "pandas>=2.2.0",
     "numpy>=1.26.0",
@@ -28,16 +28,9 @@ dev = [
     "matplotlib>=3.8.0",
 ]
 
-# Install with --no-deps. The wrds package declares "pandas<2.3", which is a
-# stale pin rather than a real incompatibility: it connects and queries fine
-# against the pandas 3.0.5 this project is verified on. Installing it normally
-# silently downgraded pandas and broke five tests with a datetime64 overflow
-# that had nothing to do with WRDS -- an hour spent on a dependency resolver
-# masquerading as a bug in our own code.
-#
-#     pip install --no-deps wrds psycopg2-binary sqlalchemy
+# WRDS access: a plain SQLAlchemy/psycopg2 connection (universe/wrds_source.py).
+# The `wrds` package is deliberately not used — every release pins pandas<2.3.
 wrds = [
-    "wrds>=3.5.0",
     "psycopg2-binary>=2.9.0",
     "sqlalchemy>=2.0.0",
 ]
