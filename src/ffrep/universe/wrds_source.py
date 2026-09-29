@@ -217,3 +217,77 @@ def fetch_fundamentals(
         """,
         date_cols=["datadate"],
     )
+
+
+#: Compustat quarterly fields for the Hou-Xue-Zhang ROE factor: earnings, the
+#: quarterly book-equity hierarchy (same shape as the annual one), and ``rdq`` —
+#: the earnings announcement date, which is what makes ROE point-in-time.
+#: Every name verified against ``information_schema`` before this was written.
+FUNDQ_FIELDS: tuple[str, ...] = (
+    "gvkey", "datadate", "fyearq", "fqtr", "fyr", "rdq", "cusip",
+    "indfmt", "datafmt", "popsrc", "consol", "curcdq",
+    "ibq",                                        # income before extraordinary items
+    "seqq", "ceqq", "pstkq", "atq", "ltq",        # stockholders' equity hierarchy
+    "pstkrq",                                     # preferred stock, redemption value
+    "txditcq",                                    # deferred taxes and ITC
+)
+
+#: The quarterly counterpart of ``FUNDA_FILTER``. The currency field is named
+#: ``curcdq`` in ``fundq``, not ``curcd``.
+FUNDQ_FILTER = (
+    "indfmt='INDL' and datafmt='STD' and popsrc='D' and consol='C' and curcdq='USD'"
+)
+
+
+def fetch_quarterly_fundamentals(
+    db: Any, window: ExtractWindow | None = None
+) -> pd.DataFrame:
+    """Compustat quarterly fundamentals, for the q-factor ROE sort."""
+    cols = ", ".join(FUNDQ_FIELDS)
+    bounds = (
+        f"datadate between '{window.start}' and '{window.end}' and "
+        if window is not None
+        else ""
+    )
+    return db.raw_sql(
+        f"""
+        select {cols}
+        from comp.fundq
+        where {bounds}{FUNDQ_FILTER}
+        """,
+        date_cols=["datadate", "rdq"],
+    )
+
+
+def fetch_name_history(db: Any) -> pd.DataFrame:
+    """
+    Every CRSP name record, with its effective dates.
+
+    The dated version of ``fetch_cusip_history``: the link diagnostics need to
+    know *when* a PERMNO carried a CUSIP, not just that it once did.
+    """
+    return db.raw_sql(
+        """
+        select permno, permco, namedt, nameendt, cusip, ncusip,
+               shrcd, exchcd, siccd, comnam
+        from crsp.msenames
+        """,
+        date_cols=["namedt", "nameendt"],
+    )
+
+
+def fetch_compustat_securities(db: Any) -> pd.DataFrame:
+    """
+    Every security issue Compustat records for a company.
+
+    ``funda.cusip`` carries one CUSIP per company — its current primary issue.
+    ``comp.security`` carries every issue, including other share classes and
+    retired ones, so it can reach CRSP securities the header CUSIP cannot.
+    """
+    return db.raw_sql(
+        """
+        select gvkey, iid, cusip, tic, excntry, dldtei, tpci, exchg
+        from comp.security
+        """,
+        date_cols=["dldtei"],
+    )

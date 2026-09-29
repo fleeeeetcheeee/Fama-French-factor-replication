@@ -231,3 +231,50 @@ class TestFetchDelistings:
         fetch_delistings(db, ExtractWindow("1990-01-01", "1990-12-31"))
         assert "dlstdt as date" in db.sql
         assert "dlstdt between '1990-01-01' and '1990-12-31'" in db.sql
+
+
+class TestFetchQuarterlyFundamentals:
+    def test_selects_the_roe_inputs_and_the_announcement_date(self):
+        from ffrep.universe.wrds_source import FUNDQ_FIELDS, fetch_quarterly_fundamentals
+
+        db = RecordingDb()
+        fetch_quarterly_fundamentals(db)
+        for field in ("ibq", "seqq", "ceqq", "pstkq", "atq", "ltq", "txditcq", "rdq"):
+            assert field in FUNDQ_FIELDS
+            assert field in db.sql
+        assert "select *" not in db.sql
+
+    def test_uses_the_quarterly_currency_field(self):
+        """fundq names it curcdq; filtering on curcd would be an SQL error."""
+        from ffrep.universe.wrds_source import FUNDQ_FILTER, fetch_quarterly_fundamentals
+
+        db = RecordingDb()
+        fetch_quarterly_fundamentals(db)
+        assert "curcdq='USD'" in FUNDQ_FILTER
+        assert FUNDQ_FILTER in db.sql
+
+    def test_parses_both_dates(self):
+        from ffrep.universe.wrds_source import fetch_quarterly_fundamentals
+
+        db = RecordingDb()
+        fetch_quarterly_fundamentals(db, ExtractWindow("1970-01-01", "1970-12-31"))
+        assert db.kwargs["date_cols"] == ["datadate", "rdq"]
+        assert "datadate between '1970-01-01' and '1970-12-31'" in db.sql
+
+
+class TestFetchIdentifiers:
+    def test_name_history_carries_effective_dates(self):
+        from ffrep.universe.wrds_source import fetch_name_history
+
+        db = RecordingDb()
+        fetch_name_history(db)
+        assert "namedt" in db.sql and "nameendt" in db.sql and "ncusip" in db.sql
+        assert db.kwargs["date_cols"] == ["namedt", "nameendt"]
+
+    def test_compustat_securities_come_from_the_security_table(self):
+        from ffrep.universe.wrds_source import fetch_compustat_securities
+
+        db = RecordingDb()
+        fetch_compustat_securities(db)
+        assert "from comp.security" in db.sql
+        assert "cusip" in db.sql and "gvkey" in db.sql
