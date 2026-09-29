@@ -3,24 +3,26 @@
 **Tier:** 1 (Factor fluency) — first project of the tier
 **Spec:** `ResearchToDo.md` → Part 3 → Tier 1 → Project 3
 **Repo:** https://github.com/fleeeeetcheeee/Fama-French-factor-replication
-**Status (2026-09-28):** **Done criterion met and verified.** Bottom-up HML, built from CRSP and
-Compustat through the full protocol, correlates **0.9954** with French's published HML over
-1990-01 – 2020-12 (372 months; slope 0.996, tracking error 29 bp/month), scored against his
+**Status (2026-09-29):** **Done criterion met and verified.** Bottom-up HML, built from CRSP and
+Compustat through the full protocol, correlates **0.9960** with French's published HML over
+1990-01 – 2020-12 (372 months; slope 0.996, tracking error 28 bp/month), scored against his
 December-2024 release — the last one built from the same legacy SIZ files this build reads — and
-0.9956 against his current CIZ release. `tests/integration/test_bottom_up.py` asserts it.
+0.9959 against his current CIZ release. `tests/integration/test_bottom_up.py` asserts it.
 
 All six factors are built bottom-up (1990–2020 correlation vs the SIZ-vintage release): Mkt-RF
-1.0000, SMB 0.9981, HML 0.9954, RMW 0.9928, CMA 0.9923, UMD 0.9997. The Hou-Xue-Zhang q-factors are
-built too (ME 0.993, I/A 0.972, ROE 0.987 vs global-q.org, 1990–2020), and spanning tests run both
-ways reproduce the literature's conclusions on published and bottom-up series alike: FF5 does not
-span ROE (alpha 0.39–0.43%/month, t 5.2–6.0), the q-model spans every FF factor including UMD
-(GRS p 0.37 published, 0.30 bottom-up). 462 tests pass (96% coverage) with the extracts present;
-on a fresh clone with no data 430 pass and 89 skip cleanly.
+1.0000, SMB 0.9984, HML 0.9960, RMW 0.9933, CMA 0.9925, UMD 0.9997; the series are versioned in
+`data/results/`. The Hou-Xue-Zhang q-factors are built from their 1967 start (ME 0.994, I/A 0.972,
+ROE 0.987 vs global-q.org, 1990–2020), and spanning tests run both ways reproduce the
+literature's conclusions on published and bottom-up series alike: FF5 does not span ROE (alpha
+0.40–0.46%/month, t 5.7–6.6), the q-model spans every FF factor including UMD (GRS p 0.43
+published, 0.22 bottom-up). 464 tests pass (96% coverage) with the extracts present; a clean
+install with no data runs 432 and skips 89; CI runs the offline suite.
 
 The step-5 attribution prices every construction choice by rebuilding with one change: linkage
-through Compustat's full security table is worth +0.003 of HML correlation, the deferred-tax
-cutoff +0.021, French's own breakpoints only +0.0004, delisting treatment ~0. French's own CIZ and
-SIZ releases agree at 0.9991 — the floor a vintage change alone produces.
+beyond Compustat's header CUSIP (its security table, then 6-character issuer codes) is worth
++0.004 of HML correlation, the deferred-tax cutoff +0.022, Moody's book equity +0.004 over the full
+sample, French's own breakpoints only +0.0003, delisting treatment ~0. French's own CIZ and SIZ
+releases agree at 0.9991 — the floor a vintage change alone produces.
 
 Two earlier claims in this log were wrong and are corrected in the 2026-09-28 entry rather than
 edited out: the deferred-tax cutoff **is** documented (French's August 2016 change note), and the
@@ -980,7 +982,7 @@ cross-section and produced a portfolio. That join is the last missing piece of s
 
 ## Status against the done criterion
 
-Updated 2026-09-28. The 2026-08-26 version of this table is in git history.
+Updated 2026-09-29. Earlier versions of this table are in git history.
 
 | Requirement | State |
 |---|---|
@@ -988,17 +990,17 @@ Updated 2026-09-28. The 2026-08-26 version of this table is in git history.
 | Factor algebra reproduces published HML/SMB | **Done, verified** — 0.5 bps, French's own rounding floor |
 | Large-cap proxy correlation (step 1) | **Done** — 0.92 big-only, analytic and empirical agree. A measured proxy, not a universal bound |
 | CRSP universe screen reproduces French's NYSE cross-section | **Done, verified** — within 1.3% of the published median and 9 firms in 2022; 18 live-CRSP tests |
-| PERMCO↔GVKEY linkage | **Done, measured** — company-level CUSIP paths incl. `comp.security`; worth +0.003 HML corr over header-only; ambiguity counted per year |
+| PERMCO↔GVKEY linkage | **Done, measured** — company-level CUSIP paths incl. `comp.security` and 6-character issuer codes; worth +0.004 HML corr over header-only; ambiguity counted per year |
 | Delisting returns (Shumway 1997), month-matched, terminal months kept | **Done, verified** — 25,761 terminal months; effect on HML measured at < 0.5 bp/month |
 | 2×3 sorts, NYSE breakpoints, June formation on prior-December accounting | **Done, verified** — `construct/formation.py`; per-sort samples as French states them |
 | NYSE breakpoints derived rather than borrowed | **Done, verified** — swapping in French's own moves HML corr by +0.0004 |
-| Book equity (SE + DT − PS) and deferred-tax cutoff | **Done, verified** — Compustat BE/ME vs published breakpoints 0.98% mean abs error 1975–2024; cutoff documented by French (Aug 2016) |
-| Moody's book equity where Compustat has none | **Done, measured** — French's own file; HML corr 1963–1989 0.9795 → 0.9920, 1990–2020 unchanged |
-| Operating profitability (BE + MI denominator) and investment | **Done, verified** — 0.41pp / 0.83pp mean abs error vs published breakpoints 1975–2024 |
-| SMB, HML, UMD, RMW, CMA (and Mkt-RF) constructed bottom-up | **Done, verified** — 1990–2020 corr 0.9981 / 0.9954 / 0.9997 / 0.9928 / 0.9923 (1.0000) |
-| **HML correlation with French's published HML > 0.99, 1990–2020** | **MET — 0.9954** vs the SIZ-vintage release, 0.9956 vs current; asserted in `test_bottom_up.py` |
-| Gap attribution (step 5) | **Done** — one-change-at-a-time rebuilds, 9 variants plus the vintage floor |
-| q-factor model + spanning tests both ways (step 6) | **Done** — ME/IA/ROE 0.993/0.972/0.987 vs global-q 1990–2020; spanning conclusions reproduced |
+| Book equity (SE + DT − PS) and deferred-tax cutoff | **Done, verified** — Compustat BE/ME vs published breakpoints 0.69% mean abs error 1975–2024; cutoff documented by French (Aug 2016) |
+| Moody's book equity where Compustat has none | **Done, measured** — French's own file; worth +0.0035 HML corr over 1963–2024, nothing over 1990–2020 |
+| Operating profitability (BE + MI denominator) and investment | **Done, verified** — 0.37pp / 0.79pp mean abs error vs published breakpoints 1975–2024 |
+| SMB, HML, UMD, RMW, CMA (and Mkt-RF) constructed bottom-up | **Done, verified** — 1990–2020 corr 0.9984 / 0.9960 / 0.9997 / 0.9933 / 0.9925 (1.0000); series versioned |
+| **HML correlation with French's published HML > 0.99, 1990–2020** | **MET — 0.9960** vs the SIZ-vintage release, 0.9959 vs current; asserted in `test_bottom_up.py` |
+| Gap attribution (step 5) | **Done** — one-change-at-a-time rebuilds, 10 variants plus the vintage floor |
+| q-factor model + spanning tests both ways (step 6) | **Done** — from HXZ's 1967 start with their book-equity imputation; ME/IA/ROE 0.994/0.972/0.987 vs global-q 1990–2020; spanning conclusions reproduced |
 
 ## Open items
 
@@ -1059,32 +1061,45 @@ Updated 2026-09-28. The 2026-08-26 version of this table is in git history.
 
 Open as of 2026-09-28:
 
-12. **q-factors before 1972.** HXZ extend their series to 1967 with quarterly book equity imputed
+12. ~~**q-factors before 1972.**~~ **Closed 2026-09-29** — HXZ's imputation implemented; built from 1967, counts within about 5% of theirs (see the 2026-09-29 entry).
+    Original: HXZ extend their series to 1967 with quarterly book equity imputed
     from the annual file and by clean surplus. Not implemented, so bottom-up ROE covers ~10% of their
     firms before 1972 and everything q-related is scored from January 1972 (their 2015 start).
-13. **I/A tracks global-q at 0.97 with slope 0.88** — ours is more volatile. Firm counts per
+13. **I/A tracks global-q at 0.97 with slope ~0.92** — *narrowed 2026-09-29, still open*: four candidate causes tested and ruled out; the excess sits in small high-I/A portfolios (10–23% more firms than HXZ's).
+    Original: — ours is more volatile. Firm counts per
     portfolio are within ~5% overall but the small/high-I/A/low-ROE portfolio holds 16% more firms
     than theirs. Candidate causes (their negative-book-equity screen on quarterly rather than annual
     BE; the size breakpoint's sample; security- vs company-level ME) are untested.
-14. **RMW and CMA before 1990** correlate 0.97–0.98, below HML's 0.99. Moody's book equity cannot
+14. ~~**RMW and CMA before 1990**~~ **Improved 2026-09-29** — issuer-level linking lifts 1963–1989 to 0.983 / 0.988 (from 0.976 / 0.972); the remaining shortfall is early Compustat coverage.
+    Original: correlate 0.97–0.98, below HML's 0.99. Moody's book equity cannot
     help them — they need Compustat income-statement and asset data — so the likely cause is the
     early Compustat coverage gap (June link rate 53–79% by count in the 1960s–70s), unmeasured
     beyond that.
-15. **The one spanning disagreement.** Bottom-up ME on FF5 has alpha t = 2.18 where the published
+15. ~~**The one spanning disagreement.**~~ **Resolved 2026-09-29, replaced** — ME on FF5 is now t = 1.85 (published 1.70); on the 1967 sample the I/A alpha on FF6 straddles 2 instead (2.09 vs 1.86).
+    Original: Bottom-up ME on FF5 has alpha t = 2.18 where the published
     series gives 1.71. Every other conclusion agrees; this one crosses the conventional line and is
     reported as a disagreement, not rounded away.
-16. **Step-2 API superseded but kept.** `sorts.FormationInputs`, `sorts.assign_2x3`,
+16. ~~**Step-2 API superseded but kept.**~~ **Closed 2026-09-29** — removed with its tests.
+    Original: `sorts.FormationInputs`, `sorts.assign_2x3`,
     `sorts.book_to_market` and `book_equity.for_formation_year` are tested but no longer on the
     build path — `formation.build_formation` does the join over PERMCO-indexed frames. Retained
     rather than deleted; a candidate for removal.
-17. **WRDS/pandas pin conflict** (review suggestion). `wrds` 3.5 declares `pandas<2.3`; it is
+17. ~~**WRDS/pandas pin conflict**~~ **Closed 2026-09-29** — the `wrds` package is replaced by a direct SQLAlchemy connection; `pip check` passes.
+    Original: (review suggestion). `wrds` 3.5 declares `pandas<2.3`; it is
     installed `--no-deps` against pandas 3.0.5 and works for every query here. Now that extraction
     writes Parquet and nothing else touches WRDS, an isolated extraction environment is a clean fix;
     not done.
-18. **No CI, and `data/results/` is not gitignored.** Results are regenerated by the scripts and
+18. ~~**No CI, and `data/results/` is not gitignored.**~~ **Closed 2026-09-29** — offline CI on 3.12/3.13; only the factor series are versioned.
+    Original: Results are regenerated by the scripts and
     have never been committed; whether to version the derived factor series is a decision for the
     repository owner (French publishes his; the portfolio counts derive from licensed data).
 
+19. **CI's Python 3.12 leg has never run.** No Python 3.12 exists on this machine; the 3.13 leg was
+    verified by a clean install from the lock (432 pass, 89 skip). The 3.12 leg first runs on the
+    next push.
+20. **The January 1972 q-portfolio count.** Ours holds 1,229 firms, HXZ's 677 — the month their
+    announcement-date requirement begins. By June 1972 the counts are close again (1,349 vs 1,281),
+    so it is a one-month transition artifact, recorded rather than chased.
 
 ## 2026-09-10 — Review findings recorded; implementation parked
 
@@ -1305,3 +1320,126 @@ than CCM, and matching French means inheriting his restatement lookahead. The q-
 462 tests pass and 57 skip (the opt-in live-WRDS tests) with the extracts present, 96% coverage;
 on a fresh clone with no data 430 pass and 89 skip. `pytest tests/integration/test_bottom_up.py`
 is the done criterion and runs in ~40s when the extracts are present.
+
+## 2026-09-29 — Open items 12–18 worked through; factor series versioned
+
+Written as work happened. The user asked for every open item in the log to be worked, and for the
+derived factor series to be committed.
+
+### Item 16 — superseded step-2 API removed
+
+`FormationInputs`, `book_to_market`, `assign_2x3` and `for_formation_year` had no caller outside
+their own tests once `formation.py` owned the join. Removed with their tests; the conventions they
+encoded (December ME in BE/ME, non-positive BE excluded) are asserted through the real join in
+`test_formation.py`. A first pass also removed `nyse_size_breakpoint` and `nyse_value_breakpoints`,
+which the live-WRDS integration tests still use — restored. The orphaned
+`REQUIRE_POSITIVE_BOOK_EQUITY` constant went with them.
+
+### Item 17 — the `wrds` package replaced, not isolated
+
+The log proposed a separate extraction environment. Checked first: `wrds` 3.5.0 is the newest
+release and still pins `pandas<2.3`, so no upgrade exists. But the project only ever used
+`Connection`, `raw_sql` and `close`, so `universe/wrds_source.py` now builds a SQLAlchemy engine
+itself (`postgresql+psycopg2`, `sslmode=require`, password from `~/.pgpass` via libpq). Three things
+go away at once: the pin (`pip check` now passes), the interactive-prompt fallback that hung a
+background extract yesterday, and the nullable dtypes. A 120-second login timeout covers the Duo
+push; TCP keepalives turn a dropped connection into an error instead of a hang.
+
+Verified live, one Duo push: the new client re-pulled `crsp_delist` **identically** — every row,
+every value — and `comp_fundq` with 11 new rows and two changed values from WRDS's overnight
+update. The extract now checks every requested column against `information_schema` before pulling.
+
+Two costs surfaced downstream and were fixed at the storage boundary, not at the call sites: the
+new client writes `datetime64[ms]` and plain text where the old extracts hold `datetime64[us]` and
+`string[pd.NA]`, and `merge_asof` and `merge` refuse to mix either. `store.to_numpy_dtypes` now
+normalises dates to nanoseconds and text to pandas' default string dtype. One more resolution
+mismatch was local — pandas 3 turns a Period into a microsecond Timestamp — and is cast in
+`roe_as_of`.
+
+### Item 12 — q-factors from 1967, as HXZ build them
+
+Diagnosis first: before 1972 quarterly *earnings* are present on 87–98% of firm-quarters but
+quarterly *book equity* on 5–30%, so ROE's denominator was the binding constraint. Implemented
+HXZ's three fills in their order — Q4 book equity from the annual file, clean surplus backward
+(BE − IBQ + DVQ), then forward from up to four quarters back — with dividends from `DVPSXQ` times
+split-adjusted beginning shares (`CSHOQ`, CRSP shares where Compustat's are missing: 58% before
+1972). Needed three new `fundq` fields; that was the Duo-approved re-pull above. Usable ROE
+firm-quarters in 1969 went from 1,206 to 7,773.
+
+A second, subtler mismatch: the four-month rule for quarters without announcement dates had been
+keyed to the *quarter's* end date. HXZ key it to the *portfolio*: "we use the most recent quarterly
+earnings from the fiscal quarter ending at least four months prior to the portfolio formation
+month" for portfolios before January 1972, and announced earnings from then on. Rewritten so a
+1971 quarter without an `rdq` serves a December-1971 portfolio and not a January-1972 one.
+
+Result: firm counts before 1972 track HXZ's within about 5% — January 1967 593 vs 624, January
+1969 1,167 vs 1,142, January 1971 1,512 vs 1,446 (with the issuer links below included). Over 1967–1971 the factors correlate ME 0.989, I/A 0.954,
+ROE 0.957 with theirs — weaker than later decades, but built rather than absent.
+
+### Item 14 — issuer-level CUSIP links
+
+Pre-1990 RMW and CMA were weak because firms were missing, not mismatched: their big portfolios
+held 79–90% of French's firm counts before 1990 against 97–99% after 2000, while the portfolios we
+did build correlated 0.98–0.999 with his. Measured the fix before adopting it: matching PERMCO to
+GVKEY on the 6-character issuer code — which identifies the company, not the issue — recovers
+79–211 unlinked companies a year, 38–50 of them above the NYSE median before 1990, with 1–3
+ambiguous a year. Added as rank 4, below every full-CUSIP path.
+
+| | before | with issuer links |
+|---|---|---|
+| HML 1990–2020 / 1963–2024 | 0.9954 / 0.9947 | **0.9960 / 0.9962** |
+| RMW 1963–1989 | 0.976 | **0.983** |
+| CMA 1963–1989 | 0.972 | **0.988** |
+| BE/ME breakpoint error, 1975–2024 | 0.98% | **0.69%** |
+| NYSE BE/ME sample shortfall vs French | 44 firms | **20** |
+| small BE/ME portfolios' firm-count ratio | 0.92–0.95 | **0.96–0.98** |
+
+The cost is recorded: companies with more than one candidate GVKEY rose from 556 to 3,214
+company-years, each resolved to its strongest CUSIP path. The attribution prices the issuer
+links at +0.0006 (1990–2020) and +0.0015 (full sample) of HML correlation.
+
+### Item 13 — I/A narrowed, not resolved
+
+Made the two open conventions explicit (`QConventions`) and tested four candidate causes, full
+1967–2024 builds each, against global-q (with issuer links in every row):
+
+| variant | I/A corr | I/A slope | ME corr | ROE corr |
+|---|---|---|---|---|
+| **shipped** — size breakpoint from the q-sample's NYSE firms, annual BE screen | 0.9728 | 0.925 | 0.9932 | 0.9816 |
+| size breakpoint from every NYSE company | 0.9748 | 0.926 | 0.9932 | 0.9816 |
+| no annual BE screen | 0.9745 | 0.933 | 0.9925 | 0.9809 |
+| negative-BE screen on the current quarter | 0.9713 | 0.924 | 0.9932 | 0.9807 |
+| weights only from trade-priced (not bid/ask) months | 0.9726 | 0.922 | 0.9919 | 0.9817 |
+
+None moves the slope, so the shipped defaults stay and the alternatives are recorded rather than
+adopted on a 0.002 difference. What the experiments did locate: the excess volatility (5.2%) comes
+with small high-I/A portfolios holding 10–23% more firms than HXZ's, while every other portfolio is
+within about ±7%. The cause is still unknown.
+
+### Item 15 — spanning, on HXZ's full sample
+
+With the q-factors now running from 1967, the spanning tests use 1967–2024 — 696 identical months
+for published and bottom-up series. The disagreement the log recorded is gone (ME on FF5: t 1.85
+here, 1.70 published). A smaller one replaced it: I/A on FF5 + UMD has t 2.09 here and 1.86 in the
+published series. Every qualitative conclusion agrees — ROE unpriced by FF5 (t 6.6 / 5.7), every
+FF factor priced by the q-model (GRS p 0.22 / 0.43).
+
+### Item 18 — CI, Python floor, versioned results
+
+`.github/workflows/tests.yml` installs the lock on Python 3.12 and 3.13, runs `pip check` and the
+offline suite. `requires-python` was 3.11 while the pinned numpy 2.5 and scipy 1.18 need 3.12 —
+corrected to 3.12. Verified by a clean install into a fresh 3.13 venv from a copy of the tree
+without `data/`: `pip check` clean, 432 pass, 89 skip.
+
+`.gitignore` had a bare `results/` rule (from the scaffold) that silently covered `data/results/`.
+Now only `data/results/bottom_up/factors.csv` and `data/results/qfactors/q_factors.csv` are
+versioned — monthly factor returns, the same kind of series French and HXZ publish. Portfolio firm
+counts and per-year diagnostics derive from licensed records and stay local.
+
+### Numbers after all of it
+
+1990–2020 against French's SIZ-vintage release: Mkt-RF 1.0000, SMB 0.9984, **HML 0.9960**, RMW
+0.9933, CMA 0.9925, UMD 0.9997; 1963–2024 HML 0.9962. R² clears 0.99 for all but RMW (0.987) and
+CMA (0.985). Characteristics against French's breakpoints, 1975–2024: BE/ME 0.69%, OP 0.37pp
+(0.56pp without minority interest), INV 0.79pp. q-factors against global-q, 1990–2020: ME 0.994,
+I/A 0.972, ROE 0.987. 464 tests pass, 57 skip (opt-in live WRDS), 96% coverage.

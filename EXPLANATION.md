@@ -18,7 +18,7 @@ Fama and Kenneth French, and French publishes them free on his website. They are
 This project rebuilds those yardsticks from scratch — from the raw prices of every US stock since
 the 1920s and the raw balance sheets of every company since the 1950s — and checks the rebuild
 against French's published numbers. The target was a correlation above 0.99 with his value factor
-(HML) over 1990–2020. The rebuild reaches **0.9954**.
+(HML) over 1990–2020. The rebuild reaches **0.9960**.
 
 Why rebuild something you can download? Because you cannot defend a number you cannot produce.
 Rebuilding forces every hidden decision into the open — which stocks count, which accounting figure
@@ -74,7 +74,7 @@ deferred taxes, minus preferred stock. But after an accounting-rule change (FASB
 adding deferred taxes for fiscal years from 1993 on. His definitions page does not say so; his
 change log does. This project first found the break by testing the formula against French's
 published numbers year by year — and then found the change note. Applying the definition literally,
-without the cutoff, drops the correlation from 0.995 to 0.975.
+without the cutoff, drops the correlation from 0.996 to 0.974.
 
 ### Blank-check companies are not companies
 
@@ -100,8 +100,10 @@ Stock prices (from CRSP) and balance sheets (from Compustat) come from two diffe
 with two different ID systems. The official bridge between them is a separate subscription this
 project does not have. Instead, companies are matched through **CUSIPs** — the nine-character IDs
 printed on every security. Using every CUSIP any share class of a company ever had, and every
-security Compustat records, links the large majority of companies — but not all, and the unmatched
-ones skew small. This is the largest remaining source of difference from French.
+security Compustat records, links the large majority of companies. Where the full ID fails, the
+first six characters — which identify the *company*, not the particular share class — still can.
+Even so, some companies are never matched, and they skew small. This is the largest remaining
+source of difference from French.
 
 ---
 
@@ -110,15 +112,15 @@ ones skew small. This is the largest remaining source of difference from French.
 | Factor | What it measures | Correlation with French, 1990–2020 |
 |---|---|---|
 | Mkt-RF | the stock market minus cash | 1.0000 |
-| SMB | small minus big | 0.9981 |
-| **HML** | **cheap minus expensive** | **0.9954** |
-| RMW | profitable minus unprofitable | 0.9928 |
-| CMA | conservative minus aggressive investment | 0.9923 |
+| SMB | small minus big | 0.9984 |
+| **HML** | **cheap minus expensive** | **0.9960** |
+| RMW | profitable minus unprofitable | 0.9933 |
+| CMA | conservative minus aggressive investment | 0.9925 |
 | UMD | recent winners minus recent losers | 0.9997 |
 
 A useful reference point: French rebuilt his own factors in 2025 when the price database changed
 format. His new HML and his old HML correlate at **0.9991**. So even the author, using the same
-companies, lands a little under 1.0 when the underlying data shifts — which is why 0.9954 should be
+companies, lands a little under 1.0 when the underlying data shifts — which is why 0.9960 should be
 read against 0.9991, not against a perfect 1.
 
 To find out *where* the remaining gap comes from, the project rebuilds HML several times, changing
@@ -178,9 +180,9 @@ checked against French's real published numbers.
   so some numbers used here were not exactly what investors saw at the time. French's factors share
   that property; matching him means inheriting it.
 - **The early decades fit less well.** Before 1990 the balance-sheet database covers fewer
-  companies, and the profitability and investment factors correlate around 0.97–0.98 with French's.
-- **The q-factors start in 1972**, not 1967, because extending them earlier needs estimation steps
-  that are not built.
+  companies, and the profitability and investment factors correlate around 0.98–0.99 with French's.
+- **One q-factor still differs more than it should.** The rebuilt investment factor is about 5% more
+  volatile than HXZ's; four likely explanations were tested and none of them is it.
 
 ---
 
