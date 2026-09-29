@@ -31,6 +31,8 @@ published benchmark portfolios.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pandas as pd
 
 from ffrep.config import NYSE_EXCHANGE_CODES, VALUE_BREAKPOINT_PERCENTILES
@@ -49,21 +51,53 @@ def _terciles(values: pd.Series, nyse: pd.Series) -> pd.Series:
     return assign_bucket(values, (p30, p70), ("1", "2", "3"))
 
 
-def annual_groups(formation) -> pd.DataFrame:
+@dataclass(frozen=True)
+class QConventions:
+    """
+    Choices the global-q document leaves open, as switches the build can ablate.
+
+    ``size_breakpoint_sample``
+        ``"sample"`` takes the NYSE median from the NYSE firms in the q-factor
+        sample (non-financial, positive book equity, with I/A); ``"nyse"`` from
+        every NYSE company, the population of French's size breakpoint. HXZ:
+        "we use the median NYSE market equity to split NYSE, Amex, and NASDAQ
+        stocks" — either reading fits the sentence.
+    ``annual_be_screen``
+        Apply the negative-book-equity exclusion to annual book equity for the
+        fiscal year ending in t-1. The ROE sort separately requires positive
+        lagged quarterly book equity, so ``False`` still excludes firms whose
+        quarterly book equity is negative.
+    """
+
+    size_breakpoint_sample: str = "sample"
+    annual_be_screen: bool = True
+
+    def __post_init__(self) -> None:
+        if self.size_breakpoint_sample not in ("sample", "nyse"):
+            raise ValueError(f"size_breakpoint_sample must be 'sample' or 'nyse', got {self.size_breakpoint_sample!r}")
+
+
+def annual_groups(formation, conventions: QConventions = QConventions()) -> pd.DataFrame:
     """
     Size and I/A groups for the year, from the June formation cross-section.
 
-    Sample: positive June ME, non-missing I/A, positive book equity, not a
-    financial firm. Both breakpoints come from the NYSE firms in that sample.
+    Sample: positive June ME, non-missing I/A, not a financial firm, and — with
+    ``annual_be_screen`` — positive book equity. The I/A breakpoints come from
+    the NYSE firms in that sample; the size breakpoint per
+    ``conventions.size_breakpoint_sample``.
     """
     frame = formation.frame
     sic = pd.to_numeric(frame.get("siccd"), errors="coerce")
     financial = sic.between(*FINANCIAL_SIC)
-    sample = frame[(frame["me"] > 0) & frame["inv"].notna() & (frame["be"] > 0) & ~financial]
+    keep = (frame["me"] > 0) & frame["inv"].notna() & ~financial
+    if conventions.annual_be_screen:
+        keep &= frame["be"] > 0
+    sample = frame[keep]
     nyse = sample["nyse"]
     if nyse.sum() < 10:
         return pd.DataFrame(columns=["gvkey", "size", "ia"])
-    size_bp = breakpoints_from_nyse(sample.loc[nyse, "me"], (50,))[0]
+    size_population = sample.loc[nyse, "me"] if conventions.size_breakpoint_sample == "sample" else formation.nyse_june_me
+    size_bp = breakpoints_from_nyse(size_population, (50,))[0]
     return pd.DataFrame({
         "gvkey": sample["gvkey"],
         "size": assign_bucket(sample["me"], (size_bp,), ("1", "2")),
@@ -78,6 +112,7 @@ def q_portfolios(
     characteristics: pd.DataFrame,
     roe: pd.DataFrame,
     years: range,
+    conventions: QConventions = QConventions(),
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     The 18 benchmark portfolios, months x ``LABELS``: returns and firm counts.
@@ -91,7 +126,7 @@ def q_portfolios(
     rets, cnts = {}, {}
 
     for year in years:
-        groups = annual_groups(build_formation(year, panel, candidates, characteristics))
+        groups = annual_groups(build_formation(year, panel, candidates, characteristics), conventions)
         if groups.empty:
             continue
         months = holding_months(year)

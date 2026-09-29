@@ -9,13 +9,12 @@ benchmark portfolios (returns and firm counts). The spanning tests are then run
 on the published series — the literature's own numbers, which this project
 should reproduce — and on the series built here, which it should agree with.
 
-Everything is scored from January 1972, Hou, Xue and Zhang's (2015) original
-start. Their published series now begin in 1967, but the 1967-71 extension
-rests on imputations not implemented here — quarterly book equity filled from
-the annual file and by clean surplus — without which only ~10% of their firms
-have a usable ROE before 1972 (141 against 1,446 in January 1971). From 1973 on
-the firm count tracks theirs within about 5%. Both the published and the
-bottom-up spanning tests use the same 1972-2024 months.
+Quarterly book equity is imputed as HXZ do — fourth quarters from the annual
+file, then clean surplus backward and forward (``qfactor/quarterly.py``) —
+which is what makes their 1967-71 extension reachable: without it only ~10% of
+their firms had a usable ROE before 1972. Series are scored from January 1967,
+their published start, and from 1972, their 2015 start; both the published and
+the bottom-up spanning tests use the same months.
 
 Writes ``data/results/qfactors/``.
 """
@@ -28,26 +27,29 @@ import time
 import pandas as pd
 
 from ffrep.config import Config
+from ffrep.construct.book_equity import book_equity, drop_empty_records
 from ffrep.construct.formation import annual_characteristics
 from ffrep.construct.monthly import company_panel
 from ffrep.evaluate.compare import fit_table
 from ffrep.evaluate.spanning import spanning
 from ffrep.pipeline import LAST_MONTH, load_inputs
 from ffrep.qfactor.construct import q_factors, q_portfolios
-from ffrep.qfactor.quarterly import quarterly_roe
+from ffrep.qfactor.quarterly import crsp_shares_by_gvkey, quarterly_roe
 from ffrep.reference.published import load_global_q, load_published
 from ffrep.store import read_extract
 
-#: January 1972 is held by the June 1971 formation.
-FIRST_FORMATION_YEAR = 1971
+#: January 1967, HXZ's published start, is held by the June 1966 formation.
+FIRST_FORMATION_YEAR = 1966
 
 WINDOWS = {
+    "1967-2024": ("1967-01", "2024-12"),
+    "1967-1971": ("1967-01", "1971-12"),
     "1972-2024": ("1972-01", "2024-12"),
     "spec 1990-2020": ("1990-01", "2020-12"),
 }
 
 #: The common sample for every spanning regression, published and bottom-up.
-SPANNING_WINDOW = slice("1972-01", "2024-12")
+SPANNING_WINDOW = slice("1967-01", "2024-12")
 
 
 def main() -> int:
@@ -60,7 +62,13 @@ def main() -> int:
     print("loading ...", flush=True)
     inputs = load_inputs(config)
     characteristics = annual_characteristics(inputs.funda)
-    roe = quarterly_roe(read_extract(config, "comp_fundq"))
+    annual = drop_empty_records(inputs.funda)
+    annual_be = annual.assign(be=book_equity(annual, deferred_taxes_through=None))[["gvkey", "datadate", "be"]]
+    roe = quarterly_roe(
+        read_extract(config, "comp_fundq"),
+        annual_be=annual_be,
+        crsp_shares=crsp_shares_by_gvkey(inputs.panel, inputs.candidates),
+    )
     companies = company_panel(inputs.panel)
     print(f"  {len(roe):,} firm-quarters with a usable ROE ({time.time() - t0:.0f}s)", flush=True)
 
@@ -90,12 +98,12 @@ def main() -> int:
     cols = ["series", "window", "n", "corr", "slope", "mean_diff_bps", "te_bps"]
     print(table[cols].to_string(index=False, float_format=lambda x: f"{x:,.4f}"))
 
-    window = slice("1972-01", "2024-12")
+    window = slice("1967-01", "2024-12")
     ratio = counts.loc[window].sum() / gq.counts.loc[window].sum()
-    port_fit = fit_table(portfolios, gq.portfolios, {"1972-2024": ("1972-01", "2024-12")})
+    port_fit = fit_table(portfolios, gq.portfolios, {"1967-2024": ("1967-01", "2024-12")})
     port_fit["count_ratio"] = port_fit["series"].map(ratio)
     port_fit.to_csv(out_dir / "portfolio_comparison.csv", index=False)
-    print("\n18 benchmark portfolios, 1972-2024: return corr, TE (bps) and firm-count ratio")
+    print("\n18 benchmark portfolios, 1967-2024: return corr, TE (bps) and firm-count ratio")
     print(port_fit[["series", "corr", "te_bps", "count_ratio"]].to_string(
         index=False, float_format=lambda x: f"{x:,.3f}"))
 
@@ -129,7 +137,7 @@ def main() -> int:
     joint.to_csv(out_dir / "spanning_grs.csv", index=False)
 
     print("\n" + "=" * 100)
-    print("SPANNING — monthly alpha (%) with Newey-West t, 1972-2024")
+    print("SPANNING — monthly alpha (%) with Newey-West t, 1967-2024")
     print("=" * 100)
     print(alphas.to_string(index=False, float_format=lambda x: f"{x:,.3f}"))
     print("\nGRS (all target factors jointly):")
