@@ -97,7 +97,8 @@ def main() -> int:
     rebuilt_inputs = {
         "no delisting returns at all": dict(delisting=False),
         "delisting returns, but no terminal months (left join)": dict(terminal_rows=False),
-        "link on Compustat header CUSIP only": dict(compustat_securities=False),
+        "no issuer-level (6-character) CUSIP links": dict(issuer_matches=False),
+        "link on Compustat header CUSIP only": dict(compustat_securities=False, issuer_matches=False),
     }
     for label, kwargs in rebuilt_inputs.items():
         print(f"{label} ...", flush=True)

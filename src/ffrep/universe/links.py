@@ -46,6 +46,18 @@ PATH_RANK: dict[tuple[str, str], int] = {
     ("crsp_name", "comp_security"): 3,
 }
 
+#: A match on the 6-character CUSIP *issuer* code alone. The issuer code
+#: identifies the company and the last two characters the issue, so between two
+#: company-level identifiers (PERMCO, GVKEY) an issuer match is a legitimate
+#: link — it is what connects a company whose recorded share classes differ
+#: between the two databases. It is still the weakest evidence, since issuer
+#: codes can be reassigned after a company disappears, so it ranks below every
+#: 8-character path and is only used where none exists. Measured on June
+#: cross-sections before 1990 it reaches 79-211 more companies a year, 38-50 of
+#: them above the NYSE median, with 1-3 ambiguous a year.
+ISSUER_RANK = 4
+ISSUER_LENGTH = 6
+
 
 def crsp_candidates(names: pd.DataFrame) -> pd.DataFrame:
     """(permco, c8, source) for every CUSIP any security of the company carried."""
@@ -76,17 +88,26 @@ def compustat_candidates(
     return out.drop_duplicates()
 
 
-def link_candidates(crsp: pd.DataFrame, compustat: pd.DataFrame) -> pd.DataFrame:
+def link_candidates(
+    crsp: pd.DataFrame, compustat: pd.DataFrame, *, issuer_matches: bool = True
+) -> pd.DataFrame:
     """
     Every (permco, gvkey) pair connected by a shared 8-character CUSIP, with the
-    rank of the strongest path connecting them.
+    rank of the strongest path connecting them — plus, with ``issuer_matches``,
+    pairs connected only by the 6-character issuer code, at ``ISSUER_RANK``.
     """
     pairs = crsp.merge(compustat, on="c8", suffixes=("_crsp", "_comp"))
     pairs["rank"] = [
         PATH_RANK[(a, b)] for a, b in zip(pairs["source_crsp"], pairs["source_comp"])
     ]
+    frames = [pairs[["permco", "gvkey", "rank"]]]
+    if issuer_matches:
+        c6 = crsp.assign(i6=crsp["c8"].str.slice(0, ISSUER_LENGTH))[["permco", "i6"]].drop_duplicates()
+        g6 = compustat.assign(i6=compustat["c8"].str.slice(0, ISSUER_LENGTH))[["gvkey", "i6"]].drop_duplicates()
+        frames.append(c6.merge(g6, on="i6")[["permco", "gvkey"]].assign(rank=ISSUER_RANK))
     return (
-        pairs.groupby(["permco", "gvkey"], as_index=False)["rank"].min()
+        pd.concat(frames, ignore_index=True)
+        .groupby(["permco", "gvkey"], as_index=False)["rank"].min()
         .sort_values(["permco", "rank", "gvkey"])
         .reset_index(drop=True)
     )

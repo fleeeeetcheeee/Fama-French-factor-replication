@@ -51,6 +51,7 @@ def load_inputs(
     delisting: bool = True,
     terminal_rows: bool = True,
     compustat_securities: bool = True,
+    issuer_matches: bool = True,
 ) -> Inputs:
     """
     Read the extracts and assemble the panel and the link candidates.
@@ -59,7 +60,8 @@ def load_inputs(
     ablation that measures what Shumway's adjustment and the terminal months are
     worth; ``terminal_rows=False`` keeps delisting returns but drops those that
     fall after a security's last ``msf`` month, as a month-matched left join
-    would. ``compustat_securities=False`` links on the header CUSIP alone.
+    would. ``compustat_securities=False`` links on the header CUSIP alone;
+    ``issuer_matches=False`` drops links made on the 6-character issuer code.
     """
     config = config or Config()
     msf = read_extract(config, "crsp_monthly")
@@ -71,7 +73,9 @@ def load_inputs(
     securities = read_extract(config, "comp_security") if compustat_securities else None
 
     panel = security_panel(msf, delist, add_terminal_rows=terminal_rows)
-    candidates = link_candidates(crsp_candidates(names), compustat_candidates(funda, securities))
+    candidates = link_candidates(
+        crsp_candidates(names), compustat_candidates(funda, securities), issuer_matches=issuer_matches
+    )
     moody_path = config.historical_be_path()
     moody = load_historical_be(moody_path) if moody_path.exists() else None
     return Inputs(panel=panel, candidates=candidates, funda=funda, moody=moody)

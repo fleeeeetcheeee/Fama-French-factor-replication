@@ -115,3 +115,29 @@ class TestResolve:
         a = resolve(candidates(rows), me, pd.Index(["A", "B", "C"]))
         b = resolve(candidates(rows[::-1]), me, pd.Index(["A", "B", "C"]))
         pd.testing.assert_series_equal(a.links, b.links)
+
+
+class TestIssuerMatches:
+    def test_issuer_code_links_when_no_full_cusip_does(self):
+        """Class B's CUSIP 12345620 never appears in Compustat, whose record is 12345610."""
+        crsp = crsp_candidates(names(permco=[7], cusip=["12345620"], ncusip=[None]))
+        comp = compustat_candidates(pd.DataFrame({"gvkey": ["001"], "cusip": ["123456109"]}))
+        links = link_candidates(crsp, comp)
+        assert links.to_dict("records") == [{"permco": 7, "gvkey": "001", "rank": 4}]
+
+    def test_full_cusip_outranks_the_issuer_match_of_the_same_pair(self):
+        crsp = crsp_candidates(names(permco=[7], cusip=["12345610"], ncusip=[None]))
+        comp = compustat_candidates(pd.DataFrame({"gvkey": ["001"], "cusip": ["123456109"]}))
+        assert link_candidates(crsp, comp)["rank"].tolist() == [0]
+
+    def test_issuer_matching_can_be_switched_off(self):
+        crsp = crsp_candidates(names(permco=[7], cusip=["12345620"], ncusip=[None]))
+        comp = compustat_candidates(pd.DataFrame({"gvkey": ["001"], "cusip": ["123456109"]}))
+        assert link_candidates(crsp, comp, issuer_matches=False).empty
+
+    def test_an_issuer_match_never_beats_a_full_cusip_to_another_company(self):
+        """Permco 7 fully matches gvkey 002 and shares only an issuer code with 001."""
+        crsp = crsp_candidates(names(permco=[7, 7], cusip=["12345620", "99999910"], ncusip=[None, None]))
+        comp = compustat_candidates(pd.DataFrame({"gvkey": ["001", "002"], "cusip": ["123456109", "999999101"]}))
+        resolved = resolve(link_candidates(crsp, comp), pd.Series({7: 10.0}), pd.Index(["001", "002"]))
+        assert resolved.links.to_dict() == {7: "002"}
