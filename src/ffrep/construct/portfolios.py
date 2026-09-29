@@ -26,11 +26,19 @@ Two distinct kinds of missing, handled differently
 The two are separated deliberately, because conflating them is how a delisted
 firm gets carried at a stale weight:
 
-**Missing ``retx`` ends the position permanently.** Without an ex-dividend
-return the weight cannot be drifted, so there is no defensible value to carry
-forward; the firm is dropped from that month onward. Carrying it would silently
+**Missing ``retx`` ends the position after that month.** A weight for month
+*m* needs ``retx`` only for the months *before* it, so the month in which
+``retx`` goes missing still has a well-defined beginning-of-month weight and its
+``ret`` still counts. What cannot be defined is the weight *after* it, so the
+firm is dropped from the following month onward. Carrying it would silently
 assume zero price change for a firm that has stopped trading, which is exactly
 the survivorship error ``delisting.py`` exists to prevent.
+
+The distinction matters most in the month a firm delists: CRSP often has no
+ex-dividend return there, while the delisting-adjusted ``ret`` holds the final
+loss. An earlier version dropped the firm in that month and so discarded exactly
+the losses Shumway's adjustment exists to keep — two equal holdings returning
+-30% and 0% came out at 0% rather than -15% (review finding R12).
 
 **Missing ``ret`` excludes the firm from that month's return only.** Its weight
 survives if ``retx`` is present, and it re-enters when a return reappears. In
@@ -78,10 +86,10 @@ def drifted_weights(
     growth = (1.0 + retx.fillna(0.0)).shift(1).fillna(1.0).cumprod()
     weights = growth.mul(base, axis=1)
 
-    # A firm with no retx observation in a month has left; it and every later
-    # month are dropped rather than held at a stale weight.
-    alive = retx.notna()
-    alive = alive.cummin().astype(bool) if len(alive) else alive
+    # The weight for month m exists while retx is known for every month before
+    # m. The month in which retx first goes missing keeps its weight (its ret
+    # still counts); every later month is dropped rather than held stale.
+    alive = retx.notna().cummin().shift(1, fill_value=True).astype(bool)
     return weights.where(alive)
 
 

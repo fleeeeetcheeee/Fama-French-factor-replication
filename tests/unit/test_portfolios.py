@@ -43,11 +43,15 @@ class TestDrift:
         w = drifted_weights(pd.Series({"a": 100.0}), panel(a=[0.10, 0.10, 0.0]))
         assert w["a"].iloc[2] == pytest.approx(121.0)  # not 120.0
 
-    def test_missing_retx_ends_the_position_permanently(self):
-        """A firm that stops trading must not be carried at a stale weight."""
+    def test_missing_retx_ends_the_position_after_that_month(self):
+        """
+        A firm that stops trading must not be carried at a stale weight — but
+        the month in which retx goes missing still has a beginning-of-month
+        weight, built only from earlier months.
+        """
         w = drifted_weights(pd.Series({"a": 100.0}), panel(a=[0.0, np.nan, 0.0]))
-        assert not pd.isna(w["a"].iloc[0])
-        assert pd.isna(w["a"].iloc[1])
+        assert w["a"].iloc[0] == pytest.approx(100.0)
+        assert w["a"].iloc[1] == pytest.approx(100.0)
         assert pd.isna(w["a"].iloc[2])
 
     def test_negative_formation_market_equity_raises(self):
@@ -204,11 +208,28 @@ class TestMissingKindsAreDistinct:
         assert r.iloc[1] == pytest.approx(0.20)   # only 'b' contributes
         assert r.iloc[2] == pytest.approx(0.20)   # 'a' is back: (0.40+0)/2
 
-    def test_missing_retx_removes_the_firm_even_when_ret_is_present(self):
+    def test_missing_retx_keeps_that_months_ret_then_retires_the_firm(self):
+        """
+        'a' has a return in month 1 but no ex-dividend return. Its weight for
+        month 1 depends only on month 0, so the 0.40 counts; there is no drift
+        basis for month 2, so it is gone from then on.
+        """
         me = pd.Series({"a": 100.0, "b": 100.0})
         ret = panel(a=[0.0, 0.40, 0.40], b=[0.0, 0.0, 0.0])
         retx = panel(a=[0.0, np.nan, 0.0], b=[0.0, 0.0, 0.0])
         r = value_weighted_return(me, ret, retx)
-        # 'a' has a return but no drift basis, so it is gone from month 1 on.
-        assert r.iloc[1] == pytest.approx(0.0)
+        assert r.iloc[1] == pytest.approx(0.20)
         assert r.iloc[2] == pytest.approx(0.0)
+
+    def test_final_delisting_loss_reaches_the_portfolio(self):
+        """
+        Review R12, verbatim: two equal holdings, one delists at -30% with no
+        retx that month, the other returns 0%. The portfolio lost 15%, and an
+        implementation that reports 0% has discarded the delisting loss.
+        """
+        me = pd.Series({"a": 100.0, "b": 100.0})
+        ret = panel(a=[-0.30, np.nan, np.nan], b=[0.0, 0.0, 0.0])
+        retx = panel(a=[np.nan, np.nan, np.nan], b=[0.0, 0.0, 0.0])
+        r = value_weighted_return(me, ret, retx)
+        assert r.iloc[0] == pytest.approx(-0.15)
+        assert r.iloc[1] == pytest.approx(0.0)

@@ -60,10 +60,14 @@ ablate them instead of arguing about them:
     sample program; the cost is that a firm with preferred stock and no
     reported par value gets an overstated BE.
 
-The deferred tax term stops in 1993, and French does not say so
---------------------------------------------------------------
-His definition carries no date qualifier, and his variable-definitions page
-states none. His published breakpoints do. Adding deferred taxes fits formation
+The deferred tax term stops in 1993 — documented in his change notes
+-------------------------------------------------------------------
+His definition carries no date qualifier and his variable-definitions page
+states none; his data-library change notes do (August 2016: deferred taxes are
+no longer added "for fiscal years ending in 1993 or later", citing FASB 109).
+This project first found the break in his published breakpoints and recorded
+it as undocumented, which was wrong — corrected 2026-09-28. The measurement
+below is independent confirmation of the documented rule. Adding deferred taxes fits formation
 years through 1993 (mean absolute error 1.0-1.9% across every published
 percentile) and misses badly after (8.7%); dropping them inverts that exactly.
 Scanning the cutoff gives a clean single minimum at fiscal years ending 1992 —
@@ -73,17 +77,18 @@ With the cutoff in place the whole 1975-2024 span comes in at 1.08% mean
 absolute error and a median bias of -0.22%. The residual is dominated by the
 CUSIP linkage, not by this: the years where linkage is near-complete (2016-2024,
 match rate 97-98%) run at 0.6-1.6%, while 1963-1971 — where Compustat covers
-55-78% of NYSE and French is using hand-collected Moody's book equity we do not
-have — run at 4-13%.
+55-78% of NYSE and French adds hand-collected Moody's book equity — run at
+4-13%. (French publishes that Moody's file; ``reference/historical_be.py``
+reads it and the formation join uses it where Compustat has no value.)
 
-The cutoff is measured. The *reason* for it is inferred: SFAS 109 takes effect
+The reason is French's own: FASB 109 changed the treatment of deferred taxes
 for fiscal years beginning after 15 December 1992, which is exactly where the
-break lands. Suggestive, not proven, and recorded as such.
+break lands in the data.
 
-Minority interest (``MIB``) is pulled but deliberately unused: the published
-definition does not mention it, and it would only matter inside the ``AT - LT``
-branch. It is kept in the extract so the ablation is possible without a
-re-pull.
+Minority interest (``MIB``) is not part of *book equity*: the published
+definition does not mention it. It is part of the *operating-profitability
+denominator* — French's August 2018 change note: "We now include minority
+interest in the denominator" — so ``operating_profitability`` adds it there.
 
 Which calendar year an annual record belongs to
 ------------------------------------------------
@@ -267,10 +272,23 @@ def book_equity(
 
 
 def operating_profitability(
-    funda: pd.DataFrame, book_equity_values: pd.Series | None = None
+    funda: pd.DataFrame,
+    book_equity_values: pd.Series | None = None,
+    *,
+    include_minority_interest: bool = True,
 ) -> pd.Series:
     """
-    ``(REVT - COGS - XSGA - XINT) / BE``, the RMW sort variable.
+    ``(REVT - COGS - XSGA - XINT) / (BE + MIB)``, the RMW sort variable.
+
+    The denominator is book equity **plus minority interest**. French's August
+    2018 change note: "We now include minority interest in the denominator", and
+    his variable definitions now read "divided by the sum of book equity and
+    minority interest". An earlier version divided by BE alone while pulling
+    ``MIB`` and not using it — profit 50, BE 100 and minority interest 100 came
+    out at 0.50 rather than 0.25 (review finding R14). Missing ``MIB`` counts as
+    zero: most firms have no minority interest and Compustat leaves it blank.
+    ``include_minority_interest=False`` restores the pre-2018 definition for
+    ablation.
 
     French's data requirement is specific and asymmetric: revenue must be
     present, and *at least one* of the three expense items must be present.
@@ -278,8 +296,9 @@ def operating_profitability(
     revenue and nothing else would otherwise be scored as pure profit, which is
     why the "at least one" clause exists rather than a blanket fillna.
 
-    Book equity must be positive for the ratio to be meaningful; non-positive
-    denominators yield NaN rather than a sign-flipped profitability.
+    Book equity must be positive — RMW's sample requires "(positive) book equity
+    data for t-1" — and so must the denominator; otherwise the result is NaN
+    rather than a sign-flipped profitability.
     """
     be = book_equity(funda) if book_equity_values is None else book_equity_values
     revenue = _col(funda, "revt")
@@ -291,7 +310,9 @@ def operating_profitability(
     profit = revenue - expenses
     profit = profit.where(revenue.notna() & any_component)
 
-    denominator = be.where(be > 0)
+    minority = _col(funda, "mib").fillna(0.0) if include_minority_interest else 0.0
+    denominator = be + minority
+    denominator = denominator.where((be > 0) & (denominator > 0))
     return (profit / denominator).rename("op")
 
 
@@ -299,18 +320,24 @@ def investment(funda: pd.DataFrame, *, id_column: str = "gvkey") -> pd.Series:
     """
     Year-over-year growth in total assets, the CMA sort variable.
 
-    ``(AT_t-1 - AT_t-2) / AT_t-2`` in French's notation — here simply the growth
-    from the previous annual record of the same firm. The previous record is
-    taken as the one before it in ``datadate`` order rather than by subtracting
-    one from the year, so a firm with a gap in coverage compares against the
-    record that actually exists; a firm whose two records are years apart still
-    produces a number, and whether that is acceptable is a screening question,
-    not a measurement one.
+    ``(AT_t-1 - AT_t-2) / AT_t-2`` in French's notation: "the change in total
+    assets from the fiscal year ending in year t-2 to the fiscal year ending in
+    t-1, divided by t-2 total assets".
+
+    The two records must be **consecutive fiscal years** — the previous record's
+    accounting year exactly one less. A firm whose coverage skips a year does not
+    get a growth rate: assets of 100 in 2020 and 200 in 2023 are 100% growth over
+    three years, not one, and scoring it as annual investment puts the firm in
+    the wrong CMA bucket. Expects one record per firm per accounting year
+    (``latest_fiscal_year``); two in the same year are not consecutive either.
     """
     ordered = funda.sort_values([id_column, "datadate"])
     total_assets = _col(ordered, "at")
-    previous = total_assets.groupby(ordered[id_column]).shift(1)
-    growth = (total_assets - previous) / previous.where(previous > 0)
+    year = accounting_year(ordered)
+    grouped = ordered[id_column]
+    previous = total_assets.groupby(grouped).shift(1)
+    consecutive = (year - year.groupby(grouped).shift(1)) == 1
+    growth = (total_assets - previous) / previous.where((previous > 0) & consecutive)
     return growth.reindex(funda.index).rename("inv")
 
 

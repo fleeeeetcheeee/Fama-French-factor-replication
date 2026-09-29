@@ -165,13 +165,32 @@ def grs_test(returns: pd.DataFrame, factors: pd.DataFrame) -> GRSResult:
     This is the right test when asking whether one factor model *spans* another:
     testing each alpha separately and counting how many clear t=2 ignores that
     the residuals are heavily cross-correlated, and overstates the evidence.
+
+    Two normalisations, deliberately different. `Σ` is the unbiased residual
+    covariance, over `T - K - 1`. `Ω` is the *unadjusted* factor covariance,
+    over `T` — the one that appears in the OLS intercept variance
+    `σ²(1 + μ'Ω⁻¹μ)/T`. With one test asset the statistic is then exactly the
+    squared OLS t-statistic of its intercept, which the tests assert. Using the
+    `T - 1` sample covariance for `Ω` misses that identity by a small amount
+    (review finding R22).
+
+    Assets and factors are aligned by **row index only**. An earlier version
+    concatenated both frames and re-selected columns by name, so an asset that
+    shared a factor's name was counted twice and a one-asset, one-factor test
+    became a two-by-two one (also R22).
     """
-    aligned = pd.concat([returns, factors], axis=1).dropna()
-    if aligned.empty:
+    for label, frame in (("returns", returns), ("factors", factors)):
+        if frame.columns.duplicated().any():
+            raise ValueError(f"{label} has duplicate column names: {list(frame.columns)}")
+        if not frame.index.is_unique:
+            raise ValueError(f"{label} has a duplicated row index")
+
+    common = returns.dropna().index.intersection(factors.dropna().index, sort=False)
+    if len(common) == 0:
         raise ValueError("no overlapping observations between returns and factors")
 
-    asset_block = aligned[returns.columns].to_numpy(dtype=float)
-    factor_block = aligned[factors.columns].to_numpy(dtype=float)
+    asset_block = returns.loc[common].to_numpy(dtype=float)
+    factor_block = factors.loc[common].to_numpy(dtype=float)
 
     T, N = asset_block.shape
     K = factor_block.shape[1]
@@ -182,18 +201,23 @@ def grs_test(returns: pd.DataFrame, factors: pd.DataFrame) -> GRSResult:
         )
 
     design = np.column_stack([np.ones(T), factor_block])
-    coefficients = np.linalg.pinv(design.T @ design) @ design.T @ asset_block
+    if np.linalg.matrix_rank(design) < K + 1:
+        raise ValueError("factors are collinear (or constant); the regression is not identified")
+
+    coefficients = np.linalg.solve(design.T @ design, design.T @ asset_block)
     alphas = coefficients[0]
     residuals = asset_block - design @ coefficients
 
-    # Residual covariance uses the (T - K - 1) denominator, matching the
-    # degrees of freedom consumed by the intercept and the K factor loadings.
     sigma = residuals.T @ residuals / (T - K - 1)
-    factor_means = factor_block.mean(axis=0)
-    omega = np.cov(factor_block, rowvar=False, ddof=1).reshape(K, K)
+    if np.linalg.matrix_rank(sigma) < N:
+        raise ValueError("residual covariance is singular; test assets are linearly dependent")
 
-    sharpe_term = float(factor_means @ np.linalg.pinv(omega) @ factor_means)
-    alpha_term = float(alphas @ np.linalg.pinv(sigma) @ alphas)
+    factor_means = factor_block.mean(axis=0)
+    centred = factor_block - factor_means
+    omega = centred.T @ centred / T
+
+    sharpe_term = float(factor_means @ np.linalg.solve(omega, factor_means))
+    alpha_term = float(alphas @ np.linalg.solve(sigma, alphas))
 
     statistic = (T / N) * ((T - N - K) / (T - K - 1)) * alpha_term / (1.0 + sharpe_term)
     p_value = float(stats.f.sf(statistic, N, T - N - K))

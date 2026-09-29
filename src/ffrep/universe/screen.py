@@ -131,6 +131,11 @@ def aggregate_to_company(df: pd.DataFrame) -> pd.DataFrame:
     *nondeterministic* one is not, because it makes the whole build
     irreproducible — the same reasoning as Project 02's event-queue sequence
     counter.
+
+    The primary security is kept as an **intact row**. ``groupby().first()``
+    would not do that: it takes the first non-null value *per column*, so a
+    primary class with a missing return or CUSIP silently inherits the other
+    class's — a hybrid row describing no real security (review finding R21).
     """
     if "me" not in df.columns:
         raise KeyError("aggregate_to_company expects an 'me' column; run apply_share_screen first")
@@ -138,7 +143,7 @@ def aggregate_to_company(df: pd.DataFrame) -> pd.DataFrame:
         return df.copy()
 
     ordered = df.sort_values(["date", "permco", "me", "permno"], ascending=[True, True, False, True])
-    primary = ordered.groupby(["date", "permco"], as_index=False).first()
+    primary = ordered.drop_duplicates(subset=["date", "permco"], keep="first")
     totals = df.groupby(["date", "permco"], as_index=False)["me"].sum().rename(columns={"me": "me_company"})
 
     out = primary.merge(totals, on=["date", "permco"], how="left")

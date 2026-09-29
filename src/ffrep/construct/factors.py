@@ -22,8 +22,8 @@ than written three times.
 Verified separately: ``evaluate/ceiling.py`` reproduces published HML and SMB
 from French's own six portfolios to 0.5 bps — the half-ulp of his two-decimal
 reporting — so this arithmetic is known correct against the published series.
-What is *not* yet verified is the same algebra over portfolios we build
-ourselves, which is what steps 3 and 4 are for.
+Over portfolios built here from CRSP and Compustat, the same algebra gives an
+HML that correlates 0.995 with French's over 1990-2020 (``scripts/build_factors.py``).
 """
 
 from __future__ import annotations
@@ -38,6 +38,19 @@ SMALL = ("SL", "SM", "SH")
 BIG = ("BL", "BM", "BH")
 HIGH = ("SH", "BH")
 LOW = ("SL", "BL")
+
+
+def _leg(returns: pd.DataFrame, labels: tuple[str, ...]) -> pd.Series:
+    """
+    Equal-weighted average of the named portfolios, NaN if any one is missing.
+
+    ``skipna=False`` is the point. pandas' default mean skips a missing leg and
+    averages the rest, which silently redefines the factor: with SmallValue
+    missing, "HML" becomes BigValue alone minus the growth average — a different
+    series under the same name (review finding R13). A month in which a
+    prescribed leg cannot be computed has no factor return.
+    """
+    return returns[list(labels)].mean(axis=1, skipna=False)
 
 
 def _require(returns: pd.DataFrame, labels: tuple[str, ...]) -> None:
@@ -57,7 +70,7 @@ def size_factor(returns: pd.DataFrame) -> pd.Series:
     value-neutral.
     """
     _require(returns, PORTFOLIO_LABELS)
-    return (returns[list(SMALL)].mean(axis=1) - returns[list(BIG)].mean(axis=1)).rename("SMB")
+    return (_leg(returns, SMALL) - _leg(returns, BIG)).rename("SMB")
 
 
 def value_factor(returns: pd.DataFrame) -> pd.Series:
@@ -69,7 +82,7 @@ def value_factor(returns: pd.DataFrame) -> pd.Series:
     decomposition step 1 exploited to measure the large-cap ceiling at 0.92.
     """
     _require(returns, PORTFOLIO_LABELS)
-    return (returns[list(HIGH)].mean(axis=1) - returns[list(LOW)].mean(axis=1)).rename("HML")
+    return (_leg(returns, HIGH) - _leg(returns, LOW)).rename("HML")
 
 
 def second_sort_factor(returns: pd.DataFrame, name: str) -> pd.Series:

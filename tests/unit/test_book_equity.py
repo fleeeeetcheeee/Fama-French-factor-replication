@@ -255,6 +255,25 @@ class TestOperatingProfitability:
         be = pd.Series([200.0], index=f.index)
         assert operating_profitability(f, be).iloc[0] == pytest.approx(2.0)
 
+    def test_minority_interest_is_in_the_denominator(self):
+        """Review R14: profit 50, BE 100, minority interest 100 -> 50/200 = 0.25."""
+        f = funda(revt=[50.0], cogs=[0.0], mib=[100.0])
+        be = pd.Series([100.0], index=f.index)
+        assert operating_profitability(f, be).iloc[0] == pytest.approx(0.25)
+
+    def test_minority_interest_can_be_left_out_for_ablation(self):
+        f = funda(revt=[50.0], cogs=[0.0], mib=[100.0])
+        be = pd.Series([100.0], index=f.index)
+        assert operating_profitability(
+            f, be, include_minority_interest=False
+        ).iloc[0] == pytest.approx(0.50)
+
+    def test_positive_minority_interest_does_not_rescue_negative_book_equity(self):
+        """RMW's sample requires positive BE; BE -10 plus MI 100 is still out."""
+        f = funda(revt=[50.0], cogs=[0.0], mib=[100.0])
+        be = pd.Series([-10.0], index=f.index)
+        assert np.isnan(operating_profitability(f, be).iloc[0])
+
 
 class TestInvestment:
     def test_year_over_year_asset_growth(self):
@@ -289,6 +308,24 @@ class TestInvestment:
         assert list(out.index) == [7, 3]
         assert out.loc[7] == pytest.approx(0.25)
         assert np.isnan(out.loc[3])
+
+    def test_requires_consecutive_fiscal_years(self):
+        """Assets 100 in 2020 and 200 in 2023 are not 100% annual investment."""
+        f = pd.DataFrame({
+            "gvkey": ["A", "A"],
+            "datadate": pd.to_datetime(["2020-12-31", "2023-12-31"]),
+            "at": [100.0, 200.0],
+        })
+        assert investment(f).isna().all()
+
+    def test_consecutive_across_a_fiscal_year_end_change(self):
+        """December 2019 to June 2020 is a consecutive accounting year."""
+        f = pd.DataFrame({
+            "gvkey": ["A", "A"],
+            "datadate": pd.to_datetime(["2019-12-31", "2020-06-30"]),
+            "at": [100.0, 110.0],
+        })
+        assert investment(f).iloc[1] == pytest.approx(0.10)
 
     def test_non_positive_prior_assets_yield_nan(self):
         f = pd.DataFrame({

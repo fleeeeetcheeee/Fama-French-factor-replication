@@ -153,6 +153,21 @@ class TestCompanyAggregation:
         out = aggregate_to_company(apply_share_screen(df))
         assert len(out) == 2
 
+    def test_primary_row_is_kept_intact_not_assembled_from_classes(self):
+        """
+        Review R21. The larger class (permno 2) has no return and no CUSIP; the
+        smaller one returned -30%. The survivor must be permno 2's own row —
+        missing return, missing CUSIP — not permno 2 wearing permno 1's -30%.
+        """
+        df = cross_section(permco=[10, 10, 30, 40], prc=[10.0, 40.0, 30.0, 40.0])
+        df["ret"] = [-0.30, float("nan"), 0.01, 0.02]
+        df["cusip"] = ["11111111", None, "33333333", "44444444"]
+        row = aggregate_to_company(apply_share_screen(df)).set_index("permco").loc[10]
+        assert row["permno"] == 2
+        assert pd.isna(row["ret"])
+        assert pd.isna(row["cusip"])
+        assert row["me"] == pytest.approx(50.0)
+
     def test_requires_me_column(self):
         with pytest.raises(KeyError, match="me"):
             aggregate_to_company(cross_section())

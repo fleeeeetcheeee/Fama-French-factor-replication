@@ -183,3 +183,62 @@ class TestGRS:
         returns = pd.DataFrame(rng.normal(size=(6, 5)), columns=list("abcde"))
         with pytest.raises(ValueError, match="T > N \\+ K"):
             grs_test(returns, factors)
+
+
+class TestGRSIdentities:
+    """
+    Review R22. GRS has two exact properties an implementation can be checked
+    against without trusting it: it cannot depend on column names, and with a
+    single test asset it equals the squared OLS t-statistic of the intercept.
+    """
+
+    @staticmethod
+    def sample(seed: int = 7, T: int = 120):
+        rng = np.random.default_rng(seed)
+        f = rng.normal(0.005, 0.04, T)
+        y = 0.003 + 0.9 * f + rng.normal(0, 0.02, T)
+        idx = pd.RangeIndex(T)
+        return pd.DataFrame({"asset": y}, index=idx), pd.DataFrame({"mkt": f}, index=idx)
+
+    def test_renaming_an_asset_to_the_factors_name_changes_nothing(self):
+        assets, factors = self.sample()
+        before = grs_test(assets, factors)
+        after = grs_test(assets.rename(columns={"asset": "mkt"}), factors)
+        assert (after.n_assets, after.n_factors) == (1, 1)
+        assert after.statistic == pytest.approx(before.statistic, rel=1e-12)
+
+    def test_single_asset_statistic_is_the_squared_intercept_t(self):
+        assets, factors = self.sample()
+        T = len(assets)
+        X = np.column_stack([np.ones(T), factors["mkt"].to_numpy()])
+        y = assets["asset"].to_numpy()
+        beta = np.linalg.solve(X.T @ X, X.T @ y)
+        resid = y - X @ beta
+        s2 = resid @ resid / (T - 2)
+        t_alpha = beta[0] / np.sqrt(s2 * np.linalg.inv(X.T @ X)[0, 0])
+        assert grs_test(assets, factors).statistic == pytest.approx(t_alpha**2, rel=1e-10)
+
+    def test_rows_missing_in_either_frame_are_dropped_from_both(self):
+        assets, factors = self.sample()
+        holed = assets.copy()
+        holed.iloc[5, 0] = np.nan
+        a = grs_test(holed, factors)
+        b = grs_test(assets.drop(index=5), factors.drop(index=5))
+        assert a.n_obs == len(assets) - 1
+        assert a.statistic == pytest.approx(b.statistic, rel=1e-12)
+
+    def test_duplicate_column_names_are_rejected(self):
+        assets, factors = self.sample()
+        doubled = pd.concat([assets, assets], axis=1)
+        with pytest.raises(ValueError, match="duplicate"):
+            grs_test(doubled, factors)
+
+    def test_collinear_factors_are_rejected(self):
+        assets, factors = self.sample()
+        with pytest.raises(ValueError, match="collinear"):
+            grs_test(assets, factors.assign(twice=2 * factors["mkt"]))
+
+    def test_linearly_dependent_assets_are_rejected(self):
+        assets, factors = self.sample()
+        with pytest.raises(ValueError, match="singular"):
+            grs_test(assets.assign(copy=assets["asset"] * 2.0), factors)

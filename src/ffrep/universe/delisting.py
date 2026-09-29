@@ -77,27 +77,70 @@ def apply_delisting_returns(
     monthly: pd.DataFrame,
     delist: pd.DataFrame,
     *,
-    on: tuple[str, str] = ("permno", "date"),
+    date_column: str = "date",
+    add_terminal_rows: bool = True,
 ) -> pd.DataFrame:
     """
     Merge delisting returns onto a monthly panel and compound them into ``ret``.
 
-    ``delist`` must carry ``permno``, the delisting date column named to match
-    ``on[1]``, ``dlret`` and ``dlstcd``. Rows of ``monthly`` with no delisting
-    event pass through untouched. Adds ``dlret``/``dlstcd`` columns so the
+    ``delist`` must carry ``permno``, a delisting date in ``date_column``,
+    ``dlret`` and ``dlstcd``. Adds ``dlret``/``dlstcd`` columns so the
     adjustment stays auditable after the fact rather than being folded away
     invisibly — the same reason SIZ was chosen over CIZ.
+
+    Matched on **calendar month**, not on date. ``msf`` stamps a row with the
+    month's last trading day while ``dlstdt`` is whatever day the security left,
+    so an exact-date join matches almost nothing: January 15 never equals
+    January 31, and the delisting loss silently disappears (review finding R12).
+
+    A delisting in a month *after* the security's last panel row has no row to
+    compound into — the firm stopped trading before month end and ``msf`` never
+    recorded that month. With ``add_terminal_rows`` such an event becomes a row
+    of its own carrying ``ret = dlret`` and a missing ``retx``, so the final
+    loss is applied to the beginning-of-month holding before the position is
+    retired. Dropping it — what a left join does — is the same survivorship
+    error this module exists to prevent. Events for securities absent from the
+    panel entirely are not added: the panel's scope is the caller's decision.
     """
     if "ret" not in monthly.columns:
         raise KeyError("apply_delisting_returns expects a 'ret' column")
 
-    keys = list(on)
-    d = delist.copy()
-    d["dlret"] = impute_delisting_return(d["dlret"], d["dlstcd"])
+    events = delist.copy()
+    events["dlret"] = impute_delisting_return(events["dlret"], events["dlstcd"])
+    events["_month"] = pd.to_datetime(events[date_column]).dt.to_period("M")
+    events = (
+        events.sort_values(["permno", date_column])
+        .drop_duplicates(subset=["permno", "_month"], keep="last")
+    )
 
-    out = monthly.merge(d[keys + ["dlret", "dlstcd"]], on=keys, how="left")
+    out = monthly.copy()
+    out["_month"] = pd.to_datetime(out[date_column]).dt.to_period("M")
+    out = out.merge(
+        events[["permno", "_month", "dlret", "dlstcd"]],
+        on=["permno", "_month"],
+        how="left",
+    )
     has_event = out["dlret"].notna()
     out.loc[has_event, "ret"] = compound_delisting(
         out.loc[has_event, "ret"], out.loc[has_event, "dlret"]
     )
-    return out
+
+    if add_terminal_rows and len(events):
+        last = out.groupby("permno")["_month"].max().rename("_last")
+        pending = events.merge(last, left_on="permno", right_index=True, how="inner")
+        pending = pending[pending["_month"] > pending["_last"]]
+        if len(pending):
+            terminal = pd.DataFrame({
+                "permno": pending["permno"].to_numpy(),
+                date_column: pending["_month"].dt.to_timestamp(how="end").dt.normalize().to_numpy(),
+                "ret": pending["dlret"].to_numpy(),
+                "dlret": pending["dlret"].to_numpy(),
+                "dlstcd": pending["dlstcd"].to_numpy(),
+                "_month": pending["_month"].to_numpy(),
+            })
+            if "retx" in out.columns:
+                terminal["retx"] = np.nan
+            out = pd.concat([out, terminal], ignore_index=True)
+            out = out.sort_values(["permno", "_month"], kind="stable").reset_index(drop=True)
+
+    return out.drop(columns="_month")

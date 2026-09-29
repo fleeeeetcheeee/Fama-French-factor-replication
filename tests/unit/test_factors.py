@@ -99,3 +99,30 @@ class TestBuild:
         months = pd.period_range("2020-01", periods=1, freq="M")
         frame = six().set_index(months)
         assert list(build_2x3_factors(frame).index) == list(months)
+
+
+class TestMissingLegsPropagate:
+    """
+    Review R13. A missing leg makes the factor missing for that month; it must
+    not be averaged away. The review's own case — SmallValue missing, BigValue
+    10%, both growth legs 0% — gave HML = 10% under skip-missing means, when
+    the prescribed factor simply cannot be computed.
+    """
+
+    def test_review_counterexample(self):
+        frame = six(SH=float("nan"), BH=10.0, SL=0.0, BL=0.0)
+        assert pd.isna(value_factor(frame).iloc[0])
+
+    @pytest.mark.parametrize("label", ["SH", "BH", "SL", "BL"])
+    def test_each_hml_leg_is_required(self, label):
+        assert pd.isna(value_factor(six(**{label: float("nan")})).iloc[0])
+
+    @pytest.mark.parametrize("label", PORTFOLIO_LABELS)
+    def test_each_smb_leg_is_required(self, label):
+        assert pd.isna(size_factor(six(**{label: float("nan")})).iloc[0])
+
+    @pytest.mark.parametrize("label", ["SM", "BM"])
+    def test_neutral_legs_do_not_enter_hml(self, label):
+        """HML never uses the neutral portfolios, so their absence cannot void it."""
+        # (3 + 6)/2 - (1 + 4)/2 = 2.0, the same as with the neutral legs present.
+        assert value_factor(six(**{label: float("nan")})).iloc[0] == pytest.approx(2.0)

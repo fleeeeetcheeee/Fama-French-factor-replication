@@ -125,11 +125,56 @@ class TestApplyToPanel:
         out = apply_delisting_returns(self.panel(), events)
         assert list(out["ret"]) == pytest.approx([0.10, -0.50, 0.02])
 
-    def test_event_on_a_different_date_does_not_apply(self):
-        events = pd.DataFrame({"permno": [2], "date": [pd.Timestamp("2022-07-29")],
+    def test_mid_month_delisting_matches_the_month_end_row(self):
+        """
+        Review R12: msf stamps June 30, the delisting is June 15. An exact-date
+        join leaves +10% at +10%; the month match gives 1.10 x 0.70 - 1 = -23%.
+        """
+        panel = pd.DataFrame({"permno": [1], "date": [pd.Timestamp("2022-06-30")],
+                              "ret": [0.10]})
+        events = pd.DataFrame({"permno": [1], "date": [pd.Timestamp("2022-06-15")],
+                               "dlret": [-0.30], "dlstcd": [552]})
+        out = apply_delisting_returns(panel, events)
+        assert len(out) == 1
+        assert out.loc[0, "ret"] == pytest.approx(-0.23)
+
+    def test_event_in_a_later_month_becomes_a_terminal_row(self):
+        """
+        The firm's last msf row is June; it delists in July. The July loss has
+        no row to compound into and must not vanish: it becomes July's return,
+        with no ex-dividend return, and June is left alone.
+        """
+        events = pd.DataFrame({"permno": [2], "date": [pd.Timestamp("2022-07-12")],
                                "dlret": [np.nan], "dlstcd": [500]})
-        out = apply_delisting_returns(self.panel(), events)
-        assert out.set_index("permno").loc[2, "ret"] == pytest.approx(-0.50)
+        panel = self.panel().assign(retx=[0.10, -0.50, 0.02])
+        out = apply_delisting_returns(panel, events)
+        rows = out[out["permno"] == 2].reset_index(drop=True)
+        assert len(rows) == 2
+        assert rows.loc[0, "ret"] == pytest.approx(-0.50)
+        assert rows.loc[1, "date"] == pd.Timestamp("2022-07-31")
+        assert rows.loc[1, "ret"] == pytest.approx(SHUMWAY_DELISTING_RETURN)
+        assert pd.isna(rows.loc[1, "retx"])
+
+    def test_terminal_rows_can_be_switched_off(self):
+        events = pd.DataFrame({"permno": [2], "date": [pd.Timestamp("2022-07-12")],
+                               "dlret": [-0.4], "dlstcd": [552]})
+        out = apply_delisting_returns(self.panel(), events, add_terminal_rows=False)
+        assert len(out) == 3
+
+    def test_event_for_a_security_outside_the_panel_is_not_added(self):
+        events = pd.DataFrame({"permno": [99], "date": [pd.Timestamp("2022-07-12")],
+                               "dlret": [-0.4], "dlstcd": [552]})
+        assert len(apply_delisting_returns(self.panel(), events)) == 3
+
+    def test_event_before_the_last_row_does_not_invent_a_row(self):
+        """A delisting dated before later panel rows is not terminal; nothing is appended."""
+        panel = pd.DataFrame({"permno": [1, 1],
+                              "date": [pd.Timestamp("2022-05-31"), pd.Timestamp("2022-07-29")],
+                              "ret": [0.01, 0.02]})
+        events = pd.DataFrame({"permno": [1], "date": [pd.Timestamp("2022-06-10")],
+                               "dlret": [-0.4], "dlstcd": [552]})
+        out = apply_delisting_returns(panel, events)
+        assert list(out["ret"]) == pytest.approx([0.01, 0.02])
 
     def test_requires_a_ret_column(self):
         with pytest.raises(KeyError, match="ret"):
