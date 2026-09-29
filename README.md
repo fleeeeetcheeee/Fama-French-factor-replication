@@ -179,7 +179,7 @@ pip install -r requirements.lock -r requirements-wrds.lock   # the second only f
 pip install -e . --no-deps
 
 python scripts/fetch_reference_data.py              # French (two releases), Moody's BE, global-q
-pytest                                              # 430 pass on a fresh clone; data tests skip
+pytest                                              # 432 pass on a clean install; data tests skip
 
 # with a WRDS subscription (credentials in ~/.pgpass, mode 0600)
 export WRDS_USERNAME=<user>

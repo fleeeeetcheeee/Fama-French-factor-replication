@@ -1348,6 +1348,9 @@ push; TCP keepalives turn a dropped connection into an error instead of a hang.
 Verified live, one Duo push: the new client re-pulled `crsp_delist` **identically** — every row,
 every value — and `comp_fundq` with 11 new rows and two changed values from WRDS's overnight
 update. The extract now checks every requested column against `information_schema` before pulling.
+The opt-in live suite (`FFREP_WRDS_TESTS=1`, universe screen and book equity against CRSP and
+Compustat) was then run on the new client: 57 passed, 1 skipped — the skip is the existing June-1970
+parametrisation, which lies outside the years that fixture pulls, and was skipped before too.
 
 Two costs surfaced downstream and were fixed at the storage boundary, not at the call sites: the
 new client writes `datetime64[ms]` and plain text where the old extracts hold `datetime64[us]` and
