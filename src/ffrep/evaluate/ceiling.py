@@ -3,12 +3,19 @@ Step 1 — how good can a truncated-universe replication possibly be?
 
 The point of doing this first
 -----------------------------
-A replication built on a large-cap universe cannot beat the correlation that
-French's *own* large-cap portfolios achieve against his own published factor.
-That bound is computable from published data alone, before any firm-level data
-is assembled and before a line of construction code is written. If it turns out
-to be 0.93, then no amount of care downstream produces 0.99, and knowing that
-changes what the project should be trying to demonstrate.
+Before any firm-level data existed, this asked how well an HML built from large
+caps alone — the only universe free data could supply — tracks French's HML,
+using French's *own* large-cap portfolios. The answer (0.92 over 1926-2026,
+0.88 over 1990-2020) was computable from published data alone and settled that
+a large-cap-only replication could not reach the 0.99 criterion.
+
+What it is and is not. It is the measured correlation of one specific
+construction — French's big-stock value spread — with his factor, over a given
+sample. It is *not* a mathematical upper bound on every possible large-cap
+construction, and the earlier wording that "no implementation can beat it"
+overstated it (corrected 2026-09-28, after the 2026-09-09 review). With WRDS
+access the question became moot: the bottom-up build uses the full CRSP
+universe and reaches 0.995 over 1990-2020.
 
 The decomposition it rests on
 -----------------------------
@@ -26,8 +33,9 @@ relative volatilities::
     corr(B, 1/2(S + B)) = ----------------------------
                           sqrt(σ_S² + 2ρ σ_S σ_B + σ_B²)
 
-which is worth deriving rather than only measuring, because it says the ceiling
-is set by ρ — and ρ is a property of the market, not of anyone's data budget.
+which is worth deriving rather than only measuring, because it says the
+correlation is set by ρ — and ρ is a property of the market, not of anyone's
+data budget.
 
 SMB gets the same treatment, where the answer is expected to be far worse: SMB
 *is* the small-minus-big spread, so a universe with no small stocks does not

@@ -3,35 +3,31 @@
 **Tier:** 1 (Factor fluency) — first project of the tier
 **Spec:** `ResearchToDo.md` → Part 3 → Tier 1 → Project 3
 **Repo:** https://github.com/fleeeeetcheeee/Fama-French-factor-replication
-**Status:** **Steps 1 and 2 complete; step 3's universe and book-equity layers built and verified
-against live CRSP and Compustat.** 333 tests pass, 98% coverage. The reference layer reproduces
-published HML and SMB to French's own 0.5 bp rounding floor; `universe/` screens a real CRSP
-cross-section to within 1.3% of his published NYSE median across four decades; `construct/` holds
-the 2x3 sort machinery plus book equity, NYSE breakpoints are now **derived** rather than borrowed
-(median error −0.000% over 544 months), and book equity tracks his published BE/ME breakpoints at
-1.08% mean absolute error over 1975–2024.
+**Status (2026-09-28):** **Done criterion met and verified.** Bottom-up HML, built from CRSP and
+Compustat through the full protocol, correlates **0.9954** with French's published HML over
+1990-01 – 2020-12 (372 months; slope 0.996, tracking error 29 bp/month), scored against his
+December-2024 release — the last one built from the same legacy SIZ files this build reads — and
+0.9956 against his current CIZ release. `tests/integration/test_bottom_up.py` asserts it.
 
-Along the way the book-equity work established something French does not document: **he stops adding
-balance-sheet deferred taxes after fiscal 1992**, measured on his own published breakpoints with a
-clean single minimum in the cutoff scan.
+All six factors are built bottom-up (1990–2020 correlation vs the SIZ-vintage release): Mkt-RF
+1.0000, SMB 0.9981, HML 0.9954, RMW 0.9928, CMA 0.9923, UMD 0.9997. The Hou-Xue-Zhang q-factors are
+built too (ME 0.993, I/A 0.972, ROE 0.987 vs global-q.org, 1990–2020), and spanning tests run both
+ways reproduce the literature's conclusions on published and bottom-up series alike: FF5 does not
+span ROE (alpha 0.39–0.43%/month, t 5.2–6.0), the q-model spans every FF factor including UMD
+(GRS p 0.37 published, 0.30 bottom-up). 462 tests pass (96% coverage) with the extracts present;
+on a fresh clone with no data 430 pass and 89 skip cleanly.
 
-What remains of step 3 is the **formation join** — nothing yet connects book equity to the June
-cross-section, so the sort machinery still has never run on real data. `qfactor/` is still empty.
+The step-5 attribution prices every construction choice by rebuilding with one change: linkage
+through Compustat's full security table is worth +0.003 of HML correlation, the deferred-tax
+cutoff +0.021, French's own breakpoints only +0.0004, delisting treatment ~0. French's own CIZ and
+SIZ releases agree at 0.9991 — the floor a vintage change alone produces.
 
-The spec's done criterion **cannot be met as written on free data** — see
-[The done criterion is unreachable as written](#the-done-criterion-is-unreachable-as-written).
-Step 1 puts a *measured* number on it: a universe without small-cap stocks tops out at
-**0.92** correlation with published HML, measured on French's own portfolios, so the bound is a
-property of the data rather than of any implementation.
+Two earlier claims in this log were wrong and are corrected in the 2026-09-28 entry rather than
+edited out: the deferred-tax cutoff **is** documented (French's August 2016 change note), and the
+0.92 "ceiling" is the measured correlation of one large-cap construction, not a bound on all of
+them. The review findings R12, R13, R14, R21 and R22 are fixed, each pinned by its counterexample.
 
-**WRDS access was approved on 2026-08-24 and is now connected and characterised.** CRSP and
-Compustat annual are readable; **CRSP/Compustat Merged is not, and cannot be added**, so the
-PERMNO↔GVKEY join is permanently a CUSIP match at 92.9% of firms / 96.1% of market equity. CRSP
-history ends 2024-12-31 while French's published files are built from the 202606 vintage, so no
-comparison can run past 2024-12. The spec's >0.99 criterion is reachable in principle on this data;
-the linkage gap is now a *measured* component of the step-5 attribution rather than a caveat. The
-free-data ceiling above stays valid regardless — it is measured on French's own published
-portfolios, so it is a fact about the data, not a limitation of this project.
+What remains is in [Open items](#open-items).
 
 ---
 
@@ -909,8 +905,9 @@ cross-section and produced a portfolio. That join is the last missing piece of s
    Sequencing steps 1–2 first proved correct: step 1's result is measured on French's published
    portfolios, so it survives the answer intact rather than being invalidated by it.
 
-2. **Revised done criterion, pending the above.** Now informed by step 1's measured ceiling rather
-   than guessed at. Proposed:
+2. ~~**Revised done criterion, pending the above.**~~ **Closed 2026-09-28 — not needed.** The
+   original criterion is met as written on the WRDS data: HML correlation 0.9954 over 1990–2020.
+   The proposal below was written for the free-data case and is kept as history. Proposed:
    - **Universe breadth is the binding constraint, not care.** With a broad free universe
      (several thousand names, not the S&P 500's ~500), the target is HML correlation **>0.95 over
      2010-07 – 2026-06**. Restricted to a large-cap universe the ceiling is **0.917** and the
@@ -919,7 +916,8 @@ cross-section and produced a portfolio. That join is the last missing piece of s
      at 0.5 bps.
    - The residual gap decomposed into named, separately measured causes.
    - q-factor extension with spanning tests both directions.
-3. **Does Project 01's full bootstrap need to run first?** Its store currently holds one EDGAR
+3. ~~**Does Project 01's full bootstrap need to run first?**~~ **Closed 2026-08-25 — no; CRSP and
+   Compustat replace it (open items 2-3).** Its store currently holds one EDGAR
    quarter (2026q1) and 30 tickers — a smoke run, not a dataset. Project 03 needs 2009q1–present
    fundamentals and a universe two orders of magnitude wider. That bootstrap is Project 01's open
    item 10 and is a prerequisite here regardless of which criterion is adopted. Deferred until
@@ -948,18 +946,32 @@ cross-section and produced a portfolio. That join is the last missing piece of s
    blank-check entities under other SIC codes, or CRSP vintage differences against French's 202606
    build. No evidence separates them; do not guess in code.
 
-7. **Does the SIC 6799 screen belong at the universe layer or the sort layer?** It changes the
-   breakpoint universe, so it must apply before breakpoints are computed. Open only as a question of
-   where it lives in the code, not whether it applies.
+   **Update 2026-09-28 — a documented mechanism, still not a closed question.** French's change
+   notes (September 2021): "We also updated the eligible universe through time to apply
+   time-sensitive evaluation of stocks on criteria such as whether they are investment funds." That
+   is a documented source for the SIC 6799 screen's *effect* — a time-varying investment-fund
+   exclusion — and for a residual that a static SIC rule would not fully reproduce. It does not say
+   which stocks, so the residual stays open; it no longer needs an undocumented explanation.
 
-10. **Why does French stop adding deferred taxes after fiscal 1992?** The cutoff itself is measured
+7. ~~**Does the SIC 6799 screen belong at the universe layer or the sort layer?**~~ **Closed —
+   universe layer.** `screen.apply_share_screen` applies it before aggregation and before any
+   breakpoint is computed, and every cross-section the build reads goes through it.
+
+10. ~~**Why does French stop adding deferred taxes after fiscal 1992?**~~ **Closed 2026-09-28 —
+    French says why.** His data-library change notes: "Because of changes in the treatment of
+    deferred taxes described in FASB 109, files produced from August 2016 on no longer add Deferred
+    Taxes and Investment Tax Credit to BE for fiscal years ending in 1993 or later." The question
+    below was asked because only the variable-definitions page was checked. The cutoff itself is measured
     and settled — FY1992, a clean single minimum, 8pp of error either side of it. The *mechanism* is
     not. SFAS 109 takes effect for fiscal years beginning after 15 December 1992, which is exactly
     where the break lands, but a change in what Compustat's `txditc` means would produce the same
     observable and the two are not separable with the data here. Same epistemic status as the SIC
     6799 screen, and recorded the same way. Do not let the SFAS 109 story harden into a claim.
 
-11. **Does the formation join belong in `construct/` or at a seam of its own?** It has to reach
+11. ~~**Does the formation join belong in `construct/` or at a seam of its own?**~~ **Closed
+    2026-09-28 — both.** The join is `construct/formation.py`, a pure function of frames; the
+    cross-layer wiring (loading extracts, building the panel and link candidates, calling the
+    sorts) is `pipeline.py`, which makes no modelling decisions. It has to reach
     across the layer boundary — CRSP June and December cross-sections from `universe/`, book equity
     from `construct/`, the CUSIP linker between them — and the layering rule says extraction may not
     transform. The join is pure transformation over frames both layers already produced, so
@@ -968,24 +980,25 @@ cross-section and produced a portfolio. That join is the last missing piece of s
 
 ## Status against the done criterion
 
+Updated 2026-09-28. The 2026-08-26 version of this table is in git history.
+
 | Requirement | State |
 |---|---|
-| Published reference series downloaded and parsed | **Done, verified** — 11 French files, all 5 breakpoint shapes |
+| Published reference series downloaded and parsed | **Done, verified** — 12 files × two vintages (current CIZ, Dec-2024 SIZ), Moody's BE, global-q |
 | Factor algebra reproduces published HML/SMB | **Done, verified** — 0.5 bps, French's own rounding floor |
-| Ceiling on a truncated universe established (step 1) | **Done** — 0.92 big-only; analytic and empirical agree |
+| Large-cap proxy correlation (step 1) | **Done** — 0.92 big-only, analytic and empirical agree. A measured proxy, not a universal bound |
 | CRSP universe screen reproduces French's NYSE cross-section | **Done, verified** — within 1.3% of the published median and 9 firms in 2022; 18 live-CRSP tests |
-| PERMNO↔GVKEY linkage | **Done, measured** — CUSIP fallback at 92.9% of firms / 96.1% of ME; CCM unavailable |
-| Delisting returns (Shumway 1997) | **Implemented, unit-tested** — not yet exercised on a full panel |
-| 2×3 size × BE/ME sorts, NYSE breakpoints (step 2) | **Implemented, hand-verified** — 100% covered; never run on real data |
-| NYSE breakpoints derived rather than borrowed | **Done, verified** — median error −0.000% over 544 months and every published percentile |
-| Quantile convention matched to French | **Done, measured** — `lower`, selected against 4 alternatives on 1960–1989 |
-| Book equity from Compustat (SE + DT − PS) | **Done, verified** — 1.08% mean abs error vs published BE/ME breakpoints, 1975–2024 |
-| Deferred-tax cutoff matched to French | **Done, measured** — FY1992, single minimum; undocumented by him |
-| Operating profitability and investment | **Implemented, hand-tested** — scored by the script but the numbers are unrecorded and unasserted |
-| June formation on prior-December accounting | **Partially** — `for_formation_year` selects the records; nothing joins them to the June cross-section |
-| SMB, HML, UMD, RMW, CMA constructed bottom-up | Not started |
-| Correlation with French's published factors > 0.99 | **Unreachable as specified.** Ceiling measured at 0.917 (large-cap) — see step 1 |
-| q-factor model + spanning tests | Not started (GRS test implemented and tested) |
+| PERMCO↔GVKEY linkage | **Done, measured** — company-level CUSIP paths incl. `comp.security`; worth +0.003 HML corr over header-only; ambiguity counted per year |
+| Delisting returns (Shumway 1997), month-matched, terminal months kept | **Done, verified** — 25,761 terminal months; effect on HML measured at < 0.5 bp/month |
+| 2×3 sorts, NYSE breakpoints, June formation on prior-December accounting | **Done, verified** — `construct/formation.py`; per-sort samples as French states them |
+| NYSE breakpoints derived rather than borrowed | **Done, verified** — swapping in French's own moves HML corr by +0.0004 |
+| Book equity (SE + DT − PS) and deferred-tax cutoff | **Done, verified** — Compustat BE/ME vs published breakpoints 0.98% mean abs error 1975–2024; cutoff documented by French (Aug 2016) |
+| Moody's book equity where Compustat has none | **Done, measured** — French's own file; HML corr 1963–1989 0.9795 → 0.9920, 1990–2020 unchanged |
+| Operating profitability (BE + MI denominator) and investment | **Done, verified** — 0.41pp / 0.83pp mean abs error vs published breakpoints 1975–2024 |
+| SMB, HML, UMD, RMW, CMA (and Mkt-RF) constructed bottom-up | **Done, verified** — 1990–2020 corr 0.9981 / 0.9954 / 0.9997 / 0.9928 / 0.9923 (1.0000) |
+| **HML correlation with French's published HML > 0.99, 1990–2020** | **MET — 0.9954** vs the SIZ-vintage release, 0.9956 vs current; asserted in `test_bottom_up.py` |
+| Gap attribution (step 5) | **Done** — one-change-at-a-time rebuilds, 9 variants plus the vintage floor |
+| q-factor model + spanning tests both ways (step 6) | **Done** — ME/IA/ROE 0.993/0.972/0.987 vs global-q 1990–2020; spanning conclusions reproduced |
 
 ## Open items
 
@@ -1000,8 +1013,9 @@ cross-section and produced a portfolio. That join is the last missing piece of s
    project.** CRSP replaces it as the price source, which also removes the delisted-price gap
    Project 01 could not close (yfinance serves no history for delisted tickers). It remains
    Project 01's own open item 10.
-4. **global-q.org fetch times out.** Needed only for step 6. The URL carries a `2024` in its
-   filename and may have moved; check when that step starts.
+4. ~~**global-q.org fetch times out.**~~ **Closed 2026-09-28.** The file had moved: the 2024 URL
+   returns 404 and the current files live under `/uploads/.../q5_factors_monthly_2025.csv`. Base URL
+   and file names are now separate constants.
 5. **`evaluate/regression.py` is at 93%** — the uncovered lines are `OLSResult.summary()` and one
    GRS branch. Cosmetic, but `summary()` is the path a human reads results through, so it should
    not stay untested.
@@ -1010,7 +1024,9 @@ cross-section and produced a portfolio. That join is the last missing piece of s
    sort machinery, WRDS retry, derived breakpoints, and book equity. Everything through
    `ced1c6f` is pushed to `origin/main`; the book-equity commit is local and awaiting a push.
 
-7. **The universe layer has never been run over the full *monthly* history.** Partially closed on
+7. ~~**The universe layer has never been run over the full *monthly* history.**~~ **Closed
+   2026-09-28** — the full panel (5,091,305 `msf` rows) is extracted and every build reads it.
+   Partially closed on
    2026-08-26: `fetch_nyse_month_ends` pulled June and December cross-sections over all of CRSP
    (318,114 security-months) and `fetch_fundamentals` pulled all 528,573 Compustat firm-years, so
    the extract path is exercised at scale for the annual sorts. What is still unpulled is the
@@ -1023,17 +1039,269 @@ cross-section and produced a portfolio. That join is the last missing piece of s
    retained as the validation reference, which is the right role for them, and the README's
    borrowed-breakpoints limitation is retired.
 
-9. **OP and INV are scored but their numbers are not recorded.** `validate_book_equity.py` compares
+9. ~~**OP and INV are scored but their numbers are not recorded.**~~ **Closed 2026-09-28** —
+   `scripts/validate_characteristics.py` scores all three sort characteristics as the formation
+   join produces them and writes `data/results/characteristics/`. `validate_book_equity.py` compares
    both against `OP_Breakpoints` and `INV_Breakpoints` in percentage points and prints a per-decade
    table; nothing captures the output and no integration test asserts a bound, so RMW's and CMA's
    sort variables sit at a weaker standard of evidence than BE/ME. One script run closes it, and it
    should be closed before step 6 builds on them.
 
-10. **The formation join does not exist.** `for_formation_year` picks the right accounting records
+10. ~~**The formation join does not exist.**~~ **Closed 2026-09-28** — `construct/formation.py`.
+    `for_formation_year` picks the right accounting records
     and `FormationInputs` names the three series a formation needs (`me_june`, `me_december`,
     `book_equity`), but nothing constructs one from CRSP and Compustat. This is the single piece
     standing between the current tree and step 4's first bottom-up HML series. See open question 11
     for where it should live.
 
-11. **The full monthly CRSP extract has not been pulled.** Step 4 needs it and it is the one
-    remaining large pull — a few hundred MB of Parquet into the gitignored `data/processed/`.
+11. ~~**The full monthly CRSP extract has not been pulled.**~~ **Closed 2026-09-28** —
+    `scripts/extract_wrds.py`, 95 MB of Parquet plus a SHA-256 manifest.
+
+Open as of 2026-09-28:
+
+12. **q-factors before 1972.** HXZ extend their series to 1967 with quarterly book equity imputed
+    from the annual file and by clean surplus. Not implemented, so bottom-up ROE covers ~10% of their
+    firms before 1972 and everything q-related is scored from January 1972 (their 2015 start).
+13. **I/A tracks global-q at 0.97 with slope 0.88** — ours is more volatile. Firm counts per
+    portfolio are within ~5% overall but the small/high-I/A/low-ROE portfolio holds 16% more firms
+    than theirs. Candidate causes (their negative-book-equity screen on quarterly rather than annual
+    BE; the size breakpoint's sample; security- vs company-level ME) are untested.
+14. **RMW and CMA before 1990** correlate 0.97–0.98, below HML's 0.99. Moody's book equity cannot
+    help them — they need Compustat income-statement and asset data — so the likely cause is the
+    early Compustat coverage gap (June link rate 53–79% by count in the 1960s–70s), unmeasured
+    beyond that.
+15. **The one spanning disagreement.** Bottom-up ME on FF5 has alpha t = 2.18 where the published
+    series gives 1.71. Every other conclusion agrees; this one crosses the conventional line and is
+    reported as a disagreement, not rounded away.
+16. **Step-2 API superseded but kept.** `sorts.FormationInputs`, `sorts.assign_2x3`,
+    `sorts.book_to_market` and `book_equity.for_formation_year` are tested but no longer on the
+    build path — `formation.build_formation` does the join over PERMCO-indexed frames. Retained
+    rather than deleted; a candidate for removal.
+17. **WRDS/pandas pin conflict** (review suggestion). `wrds` 3.5 declares `pandas<2.3`; it is
+    installed `--no-deps` against pandas 3.0.5 and works for every query here. Now that extraction
+    writes Parquet and nothing else touches WRDS, an isolated extraction environment is a clean fix;
+    not done.
+18. **No CI, and `data/results/` is not gitignored.** Results are regenerated by the scripts and
+    have never been committed; whether to version the derived factor series is a decision for the
+    repository owner (French publishes his; the portfolio counts derive from licensed data).
+
+
+## 2026-09-10 — Review findings recorded; implementation parked
+
+Retrospective record of the 2026-09-09 inspection, added at the user's request to preserve the findings for later. **No fixes started.** The [workspace backlog](../../REVIEW-BACKLOG.md) indexes every confirmed problem and suggestion; the [full review](../../REVIEW-2026-09-09.md) records source locations, research citations, proposed repairs and acceptance checks, with an [evidence bundle](../../review-artifacts/2026-09-09/README.md). These relative links refer to the local portfolio workspace.
+
+Open confirmed findings for this project, using the review's stable numbers:
+
+- R12: Exact-date delisting joins miss monthly losses and terminal-only months; missing `retx` can discard a valid final `ret` before it reaches the portfolio.
+- R13: Missing required portfolio legs silently change factor weights through skip-missing means.
+- R14: Operating profitability omits minority interest from the denominator for the documented reference definition.
+- R21: Company aggregation selects first non-null fields independently, mixing primary-security identity with another share class's return/CUSIP.
+- R22: GRS mixes asset/factor namespaces when labels overlap; its factor covariance normalization also fails the single-asset t² identity.
+
+Additional suggestions: enforce consecutive fiscal periods for annual investment; resolve/report dated and ambiguous CUSIP links; distinguish match failure from evidence of source absence; isolate or resolve the WRDS/pandas dependency conflict; reconcile Python support with locks; add independent contract tests, clean-install CI and input/reference/result provenance; add the plain-language explanation. Formation joining, full monthly CRSP extraction, recorded OP/INV validation, bounded bottom-up HML and the later five-factor/q-factor work remain outstanding, as do the existing open items above.
+
+**Research corrections to preserve:** the deferred-tax fiscal-1993 cutoff is documented in French's August 2016 change notes, so the earlier “undocumented” claim is incorrect. The 0.9208 result is a measured proxy correlation, not a universal mathematical ceiling. Universe-median agreement does not establish FIZ/SIZ versus CIZ monthly-return equivalence. The full review cites the primary sources and explains these distinctions. Preserve original entries as development history; correct current README/root claims when work resumes.
+
+**Verified scope:** on 2026-09-09, 333 tests passed and 57 skipped at `9202be5`; coverage was not remeasured and no live WRDS validation was run. Reference correlations reproduced at 0.9208 full history and 0.8827 for 1990–2020. No bottom-up factor result was established. Project status remains in progress. No source, data or environment changes, commits or pushes were made for this logging entry.
+
+## 2026-09-28 — Review fixes, formation join, all factors bottom-up: done criterion met
+
+Written as work happened, in one session. Resumed from the 2026-09-10 parking entry at the user's
+request to finish the project.
+
+### Data source: WRDS directly, not the VIETA exports
+
+The user pointed at `~/Documents/VIETA`, a separate project holding WRDS web-query exports. Checked
+before using anything: its CRSP files are **CIZ monthly, daily and distributions for 2020–2025
+only** (675,054 monthly rows, 14,553 PERMNOs), plus security identity history — and no Compustat.
+That covers five of the thirty-one years the criterion needs and none of the accounting. The live
+WRDS connection still worked (`crsp.msf` 1925–2024, `crsp.msf_v2` to 2025-12, `comp.funda` and
+`comp.fundq` to 2026-08), so the VIETA files are a strict subset of what the build can pull and
+were not used. Recorded so the choice is not mistaken for an oversight.
+
+### French's change notes settle three open questions — two of them against this log
+
+Before writing construction code, re-read French's data-library page in full rather than only the
+variable-definitions page. It carries a dated change log, and it contradicts this log twice:
+
+* **The deferred-tax cutoff is documented** (August 2016, FASB 109). The 2026-08-26 entry called it
+  undocumented; the 2026-09-09 review had already flagged that. The measurement stands as
+  confirmation; the "finding" framing is withdrawn in `config.py`, `book_equity.py` and the README.
+* **OP's denominator is BE + minority interest** (August 2018) — review finding R14, now fixed.
+* **"Time-sensitive evaluation of stocks on criteria such as whether they are investment funds"**
+  (September 2021) — a documented mechanism for what the SIC 6799 screen reproduces (open question 9).
+* **FIZ was discontinued after December 2024; the library has been built from CIZ since January
+  2025**, with a different monthly return definition. And French keeps the **December 2024 release**
+  (`ftp_202412/`), the last one built from the legacy files. That release is the like-for-like
+  reference for a build on `crsp.msf` — same format, same return definition, same CRSP vintage —
+  so it became the primary reference, with the current release reported beside it
+  (`FRENCH_VINTAGES` in `config.py`). French's own two releases agree at HML correlation **0.9991**
+  (1990–2020, max monthly difference 81 bp): the scale of difference a vintage change alone makes.
+
+### Review findings fixed, each pinned by its own counterexample
+
+| Finding | Fix | The review's case, now a test |
+|---|---|---|
+| R21 hybrid rows | `drop_duplicates` keeps the primary class's row intact | larger class with no return/CUSIP keeps its own NaNs |
+| R12 delisting joins | match on calendar month; a delisting after the last `msf` month becomes its own terminal row | +10% with −30% mid-month delisting → −23% |
+| R12 weights | month *m*'s weight needs `retx` only before *m*; the final `ret` counts | −30% and 0% equal holdings → −15%, not 0% |
+| R13 missing legs | factor legs are means with `skipna=False` | SH missing, BH 10% → HML NaN, not 10% |
+| R14 OP denominator | BE + MIB, MIB missing as 0; BE-only kept as a switch | profit 50, BE 100, MI 100 → 0.25 |
+| R22 GRS | align by row only; Ω over T; reject duplicates/collinearity | renaming an asset to the factor's name changes nothing; one-asset GRS = intercept t² to 1e-10 |
+| (suggestion) investment | growth only between consecutive fiscal years | 100 in 2020, 200 in 2023 → NaN |
+
+Two existing tests asserted the R12 behaviour the review called wrong (a firm dropped in the month
+its `retx` went missing) and were rewritten, not deleted — the review's point that raising coverage
+would have preserved the error.
+
+### Extract, and three avoidable costs
+
+`scripts/extract_wrds.py` writes six Parquet files plus `manifest.json` (rows, date coverage,
+SHA-256, retrieval time, source function): `crsp_monthly` 5,091,305 rows (62,458 fewer than raw
+`msf` — rows with no name record in the `msenames` window join), `crsp_delist` 38,843,
+`crsp_names` 117,830, `comp_funda` 528,789, `comp_fundq` 1,900,404, `comp_security` 77,753.
+
+* **A loop bug of mine** built the 2025 decade window before checking it against the end of CRSP
+  and raised after all ten decades had pulled. Fixed the order; nothing was written.
+* **Misread a working job as hung.** Output piped through `grep` is block-buffered, so progress
+  lines did not appear; I killed a pull that was running fine. Then a real hang: WRDS logins now
+  wait on a Duo push, and a background job cannot see it. The user approved one push and the whole
+  extract ran on one connection. Both are recorded because the second looks exactly like the first.
+* **Nullable dtypes cost 12×.** The `wrds` package returns `Float64`/`Int64`; a wide
+  months × securities frame of those is one pandas block per column, and a two-year build took
+  17.7s in block management. `store.read_extract` now converts to numpy dtypes at the storage
+  boundary (1.5s), which also replaces `pd.NA` — where `NA > 0` is `NA`, not `False` — with the
+  `NaN` semantics every function here is tested against.
+
+### The formation join
+
+`construct/formation.py` joins the June *t* and December *t−1* company cross-sections to fiscal
+year *t−1* accounting, keyed by **PERMCO**. Design decisions made before the first run:
+
+* **Link at the company, through every CUSIP.** Candidates are every CUSIP any share class ever
+  carried (`crsp_names`) against Compustat's header CUSIP *and* every issue in `comp.security`.
+  Ambiguity is resolved per formation year — strongest CUSIP path, then lowest GVKEY; a GVKEY
+  reached by two companies stays with the stronger path, then the larger — and **counted**: 556
+  PERMCO-years and 47 GVKEY-years over 1963–2024. `universe/links.py`.
+* **Each sort gets French's own sample.** "(positive) book equity data for t-1 (for SMB, HML, and
+  RMW) ... total assets data for t-2 and t-1 (for SMB and CMA)": CMA does *not* require positive
+  BE, and every sort requires December ME even where the ratio does not use it.
+* **Every convention the text leaves open is a switch** (`Conventions`), with the default fixed
+  from French's current wording before any result existed: no two-year Compustat rule (FF 1993 had
+  one; the current page does not), the size breakpoint from all NYSE companies (the
+  `ME_Breakpoints` population), the documented deferred-tax cutoff, MI in the OP denominator.
+* **Cross-layer wiring is `pipeline.py`**, which makes no modelling decisions (open question 11).
+
+Momentum (`construct/monthly.py`) follows French's inclusion rule. WRDS stores every CRSP missing
+code as NULL, so "missing returns from t-12 to t-3 must be −99" is approximated: a missing return
+is tolerated when the security has a row that month with no price (the −99 situation), and
+disqualifying when it has no row at all. Stated in the module.
+
+### First full run: the criterion is met
+
+With the defaults fixed in advance and nothing tuned, against the SIZ-vintage release:
+
+| | 1990–2020 corr | TE bp/mo | slope | 1963–2024 corr |
+|---|---|---|---|---|
+| Mkt-RF | 1.0000 | 1.6 | 1.001 | 1.0000 |
+| SMB | 0.9981 | 19.7 | 1.010 | 0.9976 |
+| **HML** | **0.9954** | 29.4 | 0.996 | 0.9947 |
+| RMW | 0.9928 | 31.1 | 1.014 | 0.9884 |
+| CMA | 0.9923 | 24.9 | 0.997 | 0.9858 |
+| UMD | 0.9997 | 11.0 | 1.001 | 0.9995 |
+
+(Final numbers, including the Moody's fill below; the very first run had HML 0.9955 over
+1990–2020.) Against the current CIZ release HML is 0.9956. Correlation by decade rises from 0.981
+(1960s) to 0.998 (2010s); the six BE/ME portfolios individually correlate 0.997–0.9996 with
+French's, holding 92–95% of his firm counts in the small portfolios and 98–99% in the big — the
+linkage gap showing up where the CUSIP match is weakest.
+
+### Moody's book equity — added after the first run, and why that is not tuning
+
+The first run's weak spot was 1963–1989 (HML 0.9795), where only 53–79% of June companies link to
+a Compustat record. French's book equity "is constructed from Compustat data or collected from the
+Moody's ... manuals", and he publishes the Moody's file (1,794 PERMNOs, 1926–2001, keyed by PERMNO
+so no linking is needed). `reference/historical_be.py` reads it and the formation fills book
+equity from it only where Compustat has none. It was added after seeing a result, so this is
+flagged — but it is French's documented data source, not a parameter chosen to fit, and it cannot
+move the criterion's window (it carries 4 firms in 1990 and none after). HML 1963–1989: **0.9795
+→ 0.9920** (TE 52 → 33 bp); 1990–2020: 0.9955 → 0.9954.
+
+### Step 5: attribution, one change at a time
+
+`scripts/attribution.py`, HML against the SIZ-vintage release:
+
+| variant | 1990–2020 corr | TE | 1963–2024 corr |
+|---|---|---|---|
+| French CIZ vs French SIZ (vintage floor) | 0.9991 | 13.3 | 0.9993 |
+| **baseline** | **0.9954** | **29.4** | **0.9947** |
+| deferred taxes added in every year | 0.9745 | 70.7 | 0.9822 |
+| link on Compustat header CUSIP only | 0.9922 | 38.7 | 0.9924 |
+| no Moody's book equity | 0.9955 | 29.3 | 0.9908 |
+| two-year Compustat requirement | 0.9954 | 29.5 | 0.9942 |
+| size breakpoint from each sort's NYSE sample | 0.9951 | 30.5 | 0.9945 |
+| French's published breakpoints | 0.9958 | 28.1 | 0.9951 |
+| no delisting returns at all | 0.9955 | 29.2 | 0.9949 |
+| delisting returns, no terminal months | 0.9955 | 29.2 | 0.9949 |
+
+Readings:
+
+1. **Linkage is the largest priced component**: the Compustat security table alone is worth
+   +0.003. The rest of the gap to the vintage floor sits in the firms no CUSIP path reaches — the
+   small-portfolio count shortfall — and cannot be priced without CCM.
+2. **Neither the two-year rule nor a per-sort size breakpoint is what French does now**: both fit
+   worse. Evidence for the defaults chosen from his current text.
+3. **Derived breakpoints are nearly free**: French's own buy +0.0004.
+4. **Delisting treatment is invisible at the factor level** (< 0.5 bp/month, and in the direction
+   of a slightly *better* fit without it). The R12 fix is a correctness fix for the portfolio
+   arithmetic — 25,761 terminal months would otherwise vanish — not a source of the gap, and is
+   not described as one.
+
+### Characteristics against French's breakpoints (open item 9)
+
+`scripts/validate_characteristics.py`, NYSE firms in each sort's own sample, every 5th percentile,
+formation 1975–2024: **BE/ME 0.98%** mean absolute error; **OP 0.41pp** with BE + MI in the
+denominator against **0.62pp** without — French's published breakpoints independently confirm the
+R14 fix; **INV 0.83pp**. NYSE BE/ME sample runs a median 44 firms short of French's count.
+
+### Step 6: q-factors and spanning
+
+`qfactor/` per the global-q technical document (July 2026): 2 × 3 × 3 independent sort, size and
+I/A each June, ROE monthly from the latest *announced* quarter (RDQ after quarter end, fiscal
+quarter within six months), financials and negative book equity excluded, last month's ME weights.
+
+The first run showed coverage collapsing before 1972 — 141 firms against HXZ's 1,446 in January
+1971 — because their 1967–71 extension imputes quarterly book equity from the annual file and by
+clean surplus, which is not implemented. Everything q-related is therefore scored from **January
+1972, HXZ's 2015 start**; from 1973 the firm count tracks theirs within ~5%. Against global-q,
+1990–2020: **ME 0.993, ROE 0.987, I/A 0.972** (slope 0.88 — open item 13), MKT 1.0000.
+
+Spanning, 1972–2024, same 636 months for every regression:
+
+| | published | bottom-up |
+|---|---|---|
+| ROE alpha on FF5, %/mo (t) | 0.389 (5.2) | 0.433 (6.0) |
+| ROE alpha on FF5 + UMD | 0.217 (3.6) | 0.266 (4.3) |
+| GRS, q-factors on FF5 (p) | 8.87 (0.000) | 11.06 (0.000) |
+| GRS, FF factors + UMD on q (p) | 1.07 (0.37) | 1.22 (0.30) |
+| largest FF alpha on q (t) | UMD 0.21 (1.0) | UMD 0.23 (1.1) |
+
+Both reproduce Hou-Xue-Zhang's conclusion: FF5 does not price ROE, and the q-model prices every
+FF factor including momentum. One disagreement, reported rather than rounded away: bottom-up ME on
+FF5 has t = 2.18 against the published 1.71 (open item 15).
+
+### What this establishes, and what it does not
+
+**Verified against an external reference:** every factor, every portfolio's returns and firm
+counts, all three sort characteristics' breakpoints, the q-factors and their portfolio counts —
+against French's two releases and global-q.org.
+
+**Measured but unexplained:** the pre-1990 RMW/CMA gap, the I/A slope, the one spanning t-stat.
+
+**Not claimed:** anything tradeable. `funda` is restated data, the link is a CUSIP match rather
+than CCM, and matching French means inheriting his restatement lookahead. The q-factors before
+1972 are not built.
+
+462 tests pass and 57 skip (the opt-in live-WRDS tests) with the extracts present, 96% coverage;
+on a fresh clone with no data 430 pass and 89 skip. `pytest tests/integration/test_bottom_up.py`
+is the done criterion and runs in ~40s when the extracts are present.

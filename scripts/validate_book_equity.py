@@ -16,8 +16,9 @@ Two things this script settles empirically rather than by assertion:
   1. Which year a BE-ME_Breakpoints row is stamped with (formation year t, not
      the accounting year t-1).
   2. That French stops adding balance-sheet deferred taxes to book equity after
-     fiscal 1992, which his stated definition does not say and his published
-     breakpoints require.
+     fiscal 1992. His variable definitions do not say so; his data-library
+     change notes do (August 2016, FASB 109), and his published breakpoints
+     confirm it independently.
 
     export WRDS_USERNAME=...        # credentials live in ~/.pgpass
     python scripts/validate_book_equity.py
@@ -272,9 +273,9 @@ def main() -> int:
         line.append((cutoff, window["mean_abs_err"].mean()))
     print("    " + "  ".join(f"FY{c}" for c, _ in line))
     print("    " + "  ".join(f"{v:>6.2f}" for _, v in line))
-    print("\n  A single clean minimum. No source states this cutoff; SFAS 109 "
-          "takes effect for fiscal\n  years beginning after 15 December 1992, "
-          "which is where it lands — suggestive, not proof.")
+    print("\n  A single clean minimum, at the year French's August 2016 change note "
+          "documents:\n  deferred taxes are not added for fiscal years ending in "
+          "1993 or later (FASB 109).")
 
     # --- 3. the shipped definition, year by year ----------------------------
     scored = score_beme(sections, beme_table)
