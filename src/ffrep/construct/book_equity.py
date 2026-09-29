@@ -257,7 +257,7 @@ def book_equity(
 
     Non-positive values are returned as-is rather than dropped. They are real —
     French publishes a count of them alongside the BE/ME breakpoints — and the
-    exclusion belongs to the *sort*, in ``sorts.book_to_market``, not to the
+    exclusion belongs to the *sort*, in ``formation.build_formation``, not to the
     measurement. Dropping them here would make that published count
     unreproducible and hide a genuine check on this function.
     """
@@ -366,20 +366,3 @@ def latest_fiscal_year(
     out["accounting_year"] = accounting_year(out)
     out = out.sort_values([id_column, "accounting_year", "datadate"])
     return out.drop_duplicates(subset=[id_column, "accounting_year"], keep="last")
-
-
-def for_formation_year(
-    annual: pd.DataFrame, formation_year: int, *, id_column: str = "gvkey"
-) -> pd.DataFrame:
-    """
-    The accounting records used to form portfolios in June of ``formation_year``.
-
-    Which is the fiscal year ending in the calendar year before it. Because the
-    latest such fiscal year end is December 31 of t-1, this rule guarantees at
-    least the six-month gap in ``config.MIN_MONTHS_BETWEEN_FYE_AND_FORMATION``
-    — that constant describes the consequence of this rule rather than imposing
-    a second filter on top of it.
-    """
-    if "accounting_year" not in annual.columns:
-        annual = latest_fiscal_year(annual, id_column=id_column)
-    return annual.loc[annual["accounting_year"] == formation_year - 1].copy()

@@ -15,66 +15,13 @@ from ffrep.config import BREAKPOINT_QUANTILE_METHOD
 from ffrep.construct.sorts import (
     SIZE_LABELS,
     VALUE_LABELS,
-    assign_2x3,
     assign_bucket,
-    book_to_market,
     breakpoints_from_nyse,
-    FormationInputs,
     nyse_size_breakpoint,
     nyse_value_breakpoints,
     size_bucket,
     value_bucket,
 )
-
-
-def inputs(**overrides) -> FormationInputs:
-    base = {
-        "me_june": pd.Series({1: 100.0, 2: 50.0, 3: 10.0}),
-        "me_december": pd.Series({1: 80.0, 2: 40.0, 3: 8.0}),
-        "book_equity": pd.Series({1: 40.0, 2: 40.0, 3: 8.0}),
-    }
-    base.update(overrides)
-    return FormationInputs(**base)
-
-
-class TestFormationInputs:
-    def test_rejects_non_series(self):
-        with pytest.raises(TypeError, match="me_june"):
-            FormationInputs(me_june=[1, 2], me_december=pd.Series(), book_equity=pd.Series())
-
-    def test_sortable_is_the_intersection(self):
-        i = inputs(book_equity=pd.Series({1: 40.0, 2: 40.0}))
-        assert list(i.sortable) == [1, 2]
-
-    def test_nan_excludes_a_firm_from_sortable(self):
-        i = inputs(me_december=pd.Series({1: 80.0, 2: np.nan, 3: 8.0}))
-        assert list(i.sortable) == [1, 3]
-
-
-class TestBookToMarket:
-    def test_uses_december_market_equity_not_june(self):
-        """
-        The single most consequential convention in the module. Firm 1 has
-        BE 40, December ME 80, June ME 100: BE/ME is 0.5, not 0.4.
-        """
-        assert book_to_market(inputs()).loc[1] == pytest.approx(0.5)
-
-    def test_swapping_june_for_december_would_change_the_answer(self):
-        """Guards the previous test against being vacuously true."""
-        swapped = FormationInputs(
-            me_june=inputs().me_december,
-            me_december=inputs().me_june,
-            book_equity=inputs().book_equity,
-        )
-        assert book_to_market(swapped).loc[1] != pytest.approx(0.5)
-
-    def test_non_positive_book_equity_is_dropped(self):
-        i = inputs(book_equity=pd.Series({1: 40.0, 2: 0.0, 3: -5.0}))
-        assert list(book_to_market(i).index) == [1]
-
-    def test_non_positive_market_equity_is_dropped(self):
-        i = inputs(me_december=pd.Series({1: 80.0, 2: 0.0, 3: 8.0}))
-        assert 2 not in book_to_market(i).index
 
 
 class TestAssignBucket:
@@ -113,26 +60,6 @@ class TestBuckets:
     def test_labels_are_the_documented_ones(self):
         assert SIZE_LABELS == ("S", "B")
         assert VALUE_LABELS == ("L", "M", "H")
-
-
-class TestAssign2x3:
-    def test_produces_concatenated_labels(self):
-        out = assign_2x3(inputs(), nyse_size_breakpoint=50.0, nyse_value_breakpoints=(0.6, 0.9))
-        assert out.loc[1, "portfolio"] == "BL"
-
-    def test_weight_column_is_june_market_equity(self):
-        """Value weighting uses June ME, never December."""
-        out = assign_2x3(inputs(), nyse_size_breakpoint=50.0, nyse_value_breakpoints=(0.6, 0.9))
-        assert out.loc[1, "me"] == pytest.approx(100.0)
-
-    def test_unsortable_firms_are_dropped_not_defaulted(self):
-        i = inputs(book_equity=pd.Series({1: 40.0, 2: -1.0, 3: 8.0}))
-        out = assign_2x3(i, nyse_size_breakpoint=50.0, nyse_value_breakpoints=(0.6, 0.9))
-        assert 2 not in out.index
-
-    def test_every_row_gets_one_of_the_six_labels(self):
-        out = assign_2x3(inputs(), nyse_size_breakpoint=50.0, nyse_value_breakpoints=(0.6, 0.9))
-        assert set(out["portfolio"]) <= {"SL", "SM", "SH", "BL", "BM", "BH"}
 
 
 class TestBreakpointDerivation:

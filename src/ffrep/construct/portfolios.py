@@ -135,7 +135,7 @@ def portfolio_returns(
     """
     Value-weighted returns for every portfolio in an assignment, months x portfolios.
 
-    ``assignments`` is the output of ``sorts.assign_2x3``: one row per firm with
+    ``assignments`` is the output of ``formation.sort_2x3``: one row per firm with
     its formation market equity and its portfolio label. Portfolios appear as
     columns in sorted label order, so the output is stable across runs.
     """

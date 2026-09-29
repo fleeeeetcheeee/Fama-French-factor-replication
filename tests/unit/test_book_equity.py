@@ -20,7 +20,6 @@ from ffrep.construct.book_equity import (
     book_equity,
     deferred_taxes,
     drop_empty_records,
-    for_formation_year,
     investment,
     latest_fiscal_year,
     operating_profitability,
@@ -410,42 +409,3 @@ class TestLatestFiscalYear:
             "gvkey": ["A"], "datadate": pd.to_datetime(["2020-05-31"]), "seq": [1.0],
         })
         assert latest_fiscal_year(f)["accounting_year"].iloc[0] == 2020
-
-
-class TestForFormationYear:
-    def test_takes_the_fiscal_year_ending_the_year_before_formation(self):
-        f = pd.DataFrame({
-            "gvkey": ["A", "A", "A"],
-            "datadate": pd.to_datetime(["2018-12-31", "2019-12-31", "2020-12-31"]),
-            "seq": [1.0, 2.0, 3.0],
-        })
-        out = for_formation_year(f, 2020)
-        assert len(out) == 1
-        assert out["seq"].iloc[0] == pytest.approx(2.0)
-
-    def test_a_may_fiscal_year_end_waits_thirteen_months(self):
-        """
-        FYE May 2019 belongs to accounting year 2019, so it is used at the June
-        2020 formation, not June 2019.
-        """
-        f = pd.DataFrame({
-            "gvkey": ["A"], "datadate": pd.to_datetime(["2019-05-31"]), "seq": [1.0],
-        })
-        assert for_formation_year(f, 2019).empty
-        assert len(for_formation_year(f, 2020)) == 1
-
-    def test_accepts_an_already_deduplicated_frame(self):
-        f = latest_fiscal_year(pd.DataFrame({
-            "gvkey": ["A"], "datadate": pd.to_datetime(["2019-12-31"]), "seq": [1.0],
-        }))
-        assert len(for_formation_year(f, 2020)) == 1
-
-    def test_deduplicates_when_given_a_raw_frame(self):
-        f = pd.DataFrame({
-            "gvkey": ["A", "A"],
-            "datadate": pd.to_datetime(["2019-04-30", "2019-12-31"]),
-            "seq": [1.0, 2.0],
-        })
-        out = for_formation_year(f, 2020)
-        assert len(out) == 1
-        assert out["seq"].iloc[0] == pytest.approx(2.0)

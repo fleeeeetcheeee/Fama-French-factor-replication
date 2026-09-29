@@ -11,9 +11,8 @@ Three specific errors this module is shaped to prevent
 end of June of year t. The *denominator of BE/ME* uses ME at the end of December
 of t-1. They are different numbers six months apart, and swapping them mixes a
 stale numerator with a fresh denominator, shifting every firm's value rank.
-Because both are "market equity" and both are plausible, a column-name-based API
-makes the mistake easy. ``FormationInputs`` therefore names them separately and
-requires both, so the error has to be made deliberately.
+``construct/formation.py`` carries them as separate columns (``me``, ``me_dec``)
+and computes BE/ME from ``me_dec`` only.
 
 **The inequality at the breakpoint.** A firm exactly at the 30th percentile
 belongs in the low bucket, not the middle. With continuous data exact ties are
@@ -21,9 +20,9 @@ near-measure-zero and the empirical cost is negligible, but the convention is
 pinned by tests so it cannot drift silently.
 
 **Keeping non-positive book equity.** BE/ME is not meaningful when BE <= 0 and
-French drops those firms from the value sort entirely. They are excluded here
-rather than allowed to sort into the growth bucket, which is where a naive
-ratio would put them.
+French drops those firms from the value sort entirely. ``formation.py`` excludes
+them rather than letting them sort into the growth bucket, which is where a
+naive ratio would put them.
 
 Breakpoints are NYSE-only, applied to everything
 ------------------------------------------------
@@ -35,14 +34,11 @@ breakpoints derived from our own NYSE screen are interchangeable inputs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 import pandas as pd
 
 from ffrep.config import (
     BREAKPOINT_QUANTILE_METHOD,
-    REQUIRE_POSITIVE_BOOK_EQUITY,
     SIZE_BREAKPOINT_PERCENTILE,
     VALUE_BREAKPOINT_PERCENTILES,
 )
@@ -52,70 +48,6 @@ SIZE_LABELS: tuple[str, str] = ("S", "B")
 
 #: Value buckets, low to high book-to-market: growth, neutral, value.
 VALUE_LABELS: tuple[str, str, str] = ("L", "M", "H")
-
-
-@dataclass(frozen=True)
-class FormationInputs:
-    """
-    Everything needed to form portfolios at the end of June of year *t*.
-
-    The two market-equity series are deliberately separate fields rather than
-    two columns of one frame. They are measured six months apart and are not
-    interchangeable:
-
-    ``me_june``
-        End of June, year *t*. Drives the size sort and the initial value
-        weights.
-    ``me_december``
-        End of December, year *t-1*. The denominator of BE/ME, and nothing else.
-    ``book_equity``
-        Fiscal year ending in calendar year *t-1*.
-
-    All three are indexed by the same identifier (PERMNO after company
-    aggregation). The intersection is what gets sorted; a firm missing any one
-    of them cannot be placed and is dropped.
-    """
-
-    me_june: pd.Series
-    me_december: pd.Series
-    book_equity: pd.Series
-
-    def __post_init__(self) -> None:
-        for name in ("me_june", "me_december", "book_equity"):
-            value = getattr(self, name)
-            if not isinstance(value, pd.Series):
-                raise TypeError(f"{name} must be a pandas Series, got {type(value).__name__}")
-
-    @property
-    def sortable(self) -> pd.Index:
-        """Identifiers present in all three inputs, in sorted order."""
-        return (
-            self.me_june.dropna()
-            .index.intersection(self.me_december.dropna().index)
-            .intersection(self.book_equity.dropna().index)
-            .sort_values()
-        )
-
-
-def book_to_market(inputs: FormationInputs) -> pd.Series:
-    """
-    BE/ME using December market equity, for firms that can be sorted on it.
-
-    Firms with non-positive book equity are dropped rather than assigned a
-    negative or infinite ratio — French excludes them from the value sort, and
-    letting them through would pile distressed firms into the growth bucket,
-    which is the opposite of where they belong.
-    """
-    idx = inputs.sortable
-    be = inputs.book_equity.loc[idx]
-    me = inputs.me_december.loc[idx]
-
-    if REQUIRE_POSITIVE_BOOK_EQUITY:
-        be = be[be > 0]
-    me = me.loc[be.index]
-    me = me[me > 0]
-
-    return (be.loc[me.index] / me).rename("beme")
 
 
 def assign_bucket(
@@ -153,34 +85,6 @@ def size_bucket(me: pd.Series, nyse_median: float) -> pd.Series:
 def value_bucket(beme: pd.Series, p30: float, p70: float) -> pd.Series:
     """Growth / neutral / value on the NYSE 30th and 70th BE/ME percentiles."""
     return assign_bucket(beme, (float(p30), float(p70)), VALUE_LABELS).rename("value")
-
-
-def assign_2x3(
-    inputs: FormationInputs,
-    *,
-    nyse_size_breakpoint: float,
-    nyse_value_breakpoints: tuple[float, float],
-) -> pd.DataFrame:
-    """
-    The full 2x3 assignment: six portfolios, one row per sortable firm.
-
-    Returns ``me`` (June, for value weighting), ``beme``, ``size``, ``value``
-    and ``portfolio`` — the concatenation ``"SL"``, ``"SM"`` ... ``"BH"``.
-    Firms that cannot be placed on either dimension are dropped, not defaulted.
-    """
-    p30, p70 = nyse_value_breakpoints
-    beme = book_to_market(inputs)
-    me = inputs.me_june.loc[beme.index]
-
-    out = pd.DataFrame({
-        "me": me,
-        "beme": beme,
-        "size": size_bucket(me, nyse_size_breakpoint),
-        "value": value_bucket(beme, p30, p70),
-    })
-    out = out.dropna(subset=["size", "value"])
-    out["portfolio"] = out["size"].astype(str) + out["value"].astype(str)
-    return out
 
 
 def breakpoints_from_nyse(

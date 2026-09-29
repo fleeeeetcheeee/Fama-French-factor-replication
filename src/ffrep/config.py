@@ -163,9 +163,6 @@ MOMENTUM_SKIP_MONTHS = 1
 #: not a discovery. The FASB 109 mechanism is French's stated reason, not ours.
 DEFERRED_TAX_LAST_FISCAL_YEAR: int | None = 1992
 
-#: Firms with non-positive book equity are excluded from the BE/ME sorts
-#: entirely — the ratio is not meaningful and French drops them.
-REQUIRE_POSITIVE_BOOK_EQUITY = True
 
 
 # --- CRSP universe screen ---------------------------------------------------
